@@ -1,4 +1,4 @@
-# client/api.py
+"""api"""
 
 
 def get_this_semester_timetable(jws_session):

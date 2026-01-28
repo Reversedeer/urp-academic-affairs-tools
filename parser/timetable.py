@@ -1,31 +1,47 @@
-# parser/timetable.py
+"""获取并解析课表数据的模块"""
+
+from typing import Dict, Any, List
 
 
-def parse_timetable(raw_json: dict):
+def parse_timetable(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    把教务原始 JSON 转成统一结构列表
+    从教务系统返回的 JSON（xkxx 结构）中解析出课表明细
     """
-    result = []
+    result: List[Dict[str, Any]] = []
 
-    # 你的真实数据：xkxx 是 dict
-    for course in raw_json["xkxx"].values():
-        course_name = course["courseName"]
-        teacher = course["attendClassTeacher"].replace("*", "").strip()
-        credit = course["unit"]
+    xkxx_list = data.get("xkxx", [])
+    if not xkxx_list:
+        return result
 
-        for tp in course["timeAndPlaceList"]:
-            result.append(
-                {
-                    "course": course_name,
-                    "teacher": teacher,
-                    "credit": credit,
-                    "day": tp["classDay"],  # 1-7
-                    "start": tp["classSessions"],  # 第几节
-                    "length": tp["continuingSession"],  # 连上几节
-                    "weeks": tp["weekDescription"],
-                    "building": tp["teachingBuildingName"],
-                    "room": tp["classroomName"],
-                }
-            )
+    # xkxx 是一个 list，每个元素是一个课程的字典映射
+    for course_map in xkxx_list:
+        if not isinstance(course_map, dict):
+            continue
+
+        for _, course in course_map.items():
+            course_name = course.get("courseName", "")
+            teacher = course.get("attendClassTeacher", "").strip()
+            credit = course.get("unit", 0)
+
+            time_list = course.get("timeAndPlaceList", [])
+            if not time_list:
+                continue
+
+            for t in time_list:
+                result.append(
+                    {
+                        "course_name": course_name,
+                        "teacher": teacher,
+                        "day": t.get("classDay"),
+                        "start_session": t.get("classSessions"),
+                        "duration": t.get("continuingSession"),
+                        "weeks": t.get("classWeek"),
+                        "week_desc": t.get("weekDescription"),
+                        "campus": t.get("campusName"),
+                        "building": t.get("teachingBuildingName"),
+                        "classroom": t.get("classroomName"),
+                        "credit": credit,
+                    }
+                )
 
     return result

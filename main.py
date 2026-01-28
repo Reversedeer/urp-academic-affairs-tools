@@ -1,4 +1,4 @@
-"""main.py"""
+"""入口文件 main"""
 
 from client import JWSSession
 from client import get_this_semester_timetable
