@@ -1,0 +1,14 @@
+[project]
+name = "urp-academic-affairs-tools"
+version = "0.1.0"
+description = "URP Academic Affairs System Course Snatching Tool"
+authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
+license = { text = "AGPL-3.0" }
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
