@@ -168,3 +168,4 @@ cython_debug/
 # output files
 *.xlsx
 *.txt
+captcha_dump/*
