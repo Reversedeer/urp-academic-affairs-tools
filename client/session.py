@@ -20,10 +20,11 @@ CAPTCHA_URL = f"{BASE_URL}/img/captcha.jpg"
 INDEX_URL = f"{BASE_URL}/index.jsp"
 CODE_LEN = 4
 ASCII_CODE_RE = re.compile(r"^[A-Za-z0-9]{4}$")
+MAX_RETRY = 10
 
 
 class JWSSession:
-    def __init__(self):
+    def __init__(self) -> None:
         self.session = requests.Session()
         adapter = HTTPAdapter(
             pool_connections=50,
@@ -45,16 +46,21 @@ class JWSSession:
 
     @staticmethod
     def _md5(text: str) -> str:
+        """明文密码 MD5 加密"""
         return hashlib.md5(text.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _extract_token(html: str) -> str:
-        m = re.search(r'name="tokenValue"\s+value="([^"]+)"', html)
+        """获取tokenValue"""
+        m: re.Match[str] | None = re.search(
+            r'name="tokenValue"\s+value="([^"]+)"', html
+        )
         if not m:
-            raise RuntimeError("tokenValue not found")
+            raise RuntimeError("❌tokenValue not found")
         return m.group(1)
 
     def _sleep_jitter(self) -> None:
+        """随机等待，防止请求过快"""
         lo, hi = self.jitter
         if hi > 0:
             time.sleep(random.uniform(lo, hi))
@@ -99,15 +105,15 @@ class JWSSession:
                 print(f"❌[captcha] 第 {i} 次图片损坏：{e}")
                 self._sleep_jitter()
 
-        raise RuntimeError("验证码获取失败（多次非图片或损坏）")
+        raise RuntimeError("验证码获取失败，请检查日志")
 
     def _parse_captcha(self, img_bytes: bytes) -> str:
         """
         验证码解析策略：
-            - full OCR
-            - split OCR（四等分）
-            - full 和 split 都是 4 位 → 优先 full
-            - 否则 → 优先 split
+        - full OCR
+        - split OCR
+        - full 和 split 都是 4 位 → 优先 full
+        - 否则 → 优先 split
         """
 
         def normalize(s: str) -> str:
@@ -115,11 +121,12 @@ class JWSSession:
                 return ""
             s = s.strip().replace(" ", "")
 
-            # 截断算术提示符
-            for sep in ("=", "?"):
-                if sep in s:
-                    s = s.split(sep, 1)[0]
-                    break
+            # TODO
+            # # 截断算术提示符
+            # for sep in ("=", "?"):
+            #     if sep in s:
+            #         s = s.split(sep, 1)[0]
+            #         break
 
             s = s.replace("y", "7").replace("9", "r").replace("E", "F")
 
@@ -141,21 +148,20 @@ class JWSSession:
             pil_img.save(buf, format="PNG")
             return self.ocr.classification(buf.getvalue())
 
-        # ================== 读取 GIF ==================
+        # 读取 GIF
         img = Image.open(BytesIO(img_bytes))
         frames = [f.convert("L") for f in ImageSequence.Iterator(img)]
         if not frames:
             return ""
 
         base = frames[0]
-
-        # ================== ① 整体 OCR ==================
-        raw_full = ocr_img(base)
-        norm_full = normalize(raw_full)
+        # 整体 OCR
+        raw_full: str = ocr_img(base)
+        norm_full: str = normalize(raw_full)
 
         print(f"⭕[captcha-raw] full='{raw_full}'")
 
-        # ================== ② 单独 OCR ==================
+        # 单独 OCR
         w, h = base.size
         char_w = w // 4
 
@@ -164,11 +170,11 @@ class JWSSession:
         for i in range(4):
             box = (i * char_w, 0, (i + 1) * char_w, h)
             crop = base.crop(box)
-            raw = ocr_img(crop)
-            norm = normalize(raw)
+            raw: str = ocr_img(crop)
+            norm: str = normalize(raw)
             split_chars.append(norm[:1] if norm else "")
 
-        # ===== 第一位强化识别（多帧 + 多裁剪投票）=====
+        # 第一位强化识别
         if not split_chars[0]:
             candidates = []
 
@@ -177,8 +183,8 @@ class JWSSession:
 
                 for ratio in (4, 3):
                     crop = frame.crop((0, 0, w // ratio, h))
-                    raw = ocr_img(crop)
-                    norm = normalize(raw)
+                    raw: str = ocr_img(crop)
+                    norm: str = normalize(raw)
                     if norm:
                         candidates.append(norm[0])
 
@@ -193,7 +199,7 @@ class JWSSession:
 
         print(f"⭕[captcha-split] {split_chars} -> '{split_code}'")
 
-        # ================== ③ 决策 ==================
+        # 优先使用 full，识别不全时使用 split
         full_ok = len(norm_full) == CODE_LEN and is_valid_code(norm_full)
         split_ok = len(split_code) == CODE_LEN and is_valid_code(split_code)
 
@@ -213,6 +219,7 @@ class JWSSession:
         return ""
 
     def is_logged_in(self) -> bool:
+        """检查是否已登录"""
         try:
             r = self.session.get(
                 INDEX_URL,
@@ -231,39 +238,55 @@ class JWSSession:
             if "gotologin" in loc or "/login" in loc:
                 return False
 
+        if r.status_code == 404:
+            print("❌[AUTH] 404 页面未找到，可能是教务系统维护中")
+            return False
+
         return False
 
-    def login(self, username: str, password: str, max_retry=25):
+    def login(self, username: str, password: str):
+        """登录教务系统，保存会话状态"""
         self._username = username
         self._password = password
 
-        for i in range(1, max_retry + 1):
-            print(f"\n✨[LOGIN] 第 {i} 次尝试", time.strftime("%Y-%m-%d %H:%M:%S"))
+        for i in range(1, MAX_RETRY + 1):
+            print(f"\n✨[LOGIN] 第 {i} 次尝试登录", time.strftime("%Y-%m-%d %H:%M:%S"))
 
             try:
                 r = self.session.get(
-                    LOGIN_PAGE, headers=self.headers, timeout=self.timeout
+                    LOGIN_PAGE,
+                    headers=self.headers,
+                    timeout=self.timeout,
                 )
             except requests.RequestException as e:
                 print("❌[LOGIN] 获取登录页失败：", e)
                 self._sleep_jitter()
                 continue
 
-            token = self._extract_token(r.text)
-            print("✨[LOGIN] tokenValue:", token)
+            if r.status_code != 200:
+                print(f"❌[LOGIN] 获取登录页异常：{r.status_code}")
+                self._sleep_jitter()
+                continue
 
             try:
-                img_bytes = self._fetch_captcha_image()
-                captcha = self._parse_captcha(img_bytes)
+                token: str = self._extract_token(r.text)
+                print("✨[LOGIN] tokenValue:", token)
+            except RuntimeError as e:
+                print("❌[LOGIN] tokenValue提取失败：", e)
+                continue
+
+            try:
+                img_bytes: bytes = self._fetch_captcha_image()
+                captcha: str = self._parse_captcha(img_bytes)
             except Exception as e:
                 print("❌[LOGIN] 验证码失败：", e)
                 continue
 
             if not captcha or not ASCII_CODE_RE.fullmatch(captcha):
-                print("❌[LOGIN] OCR 结果异常（非4位ASCII字母数字/非数字答案），重试")
+                print("❌[LOGIN] OCR 结果异常(非4位ASCII字母数字/非数字答案)，重试")
                 continue
 
-            data = {
+            data: dict[str, str] = {
                 "tokenValue": token,
                 "j_username": username,
                 "j_password": self._md5(password),
@@ -284,7 +307,7 @@ class JWSSession:
                 continue
 
             if self.is_logged_in():
-                print("✅[LOGIN] 登录成功")
+                print("✅[LOGIN] 登录成功", time.strftime("%Y-%m-%d %H:%M:%S"))
                 return
 
             print("❌[LOGIN] 登录失败，重试中…")
@@ -292,7 +315,8 @@ class JWSSession:
 
         raise RuntimeError("❌登录失败：超过最大重试次数")
 
-    def _ensure_login(self):
+    def _ensure_login(self) -> None:
+        """确保已登录，未登录则自动重登"""
         if self.is_logged_in():
             return
 
@@ -302,11 +326,12 @@ class JWSSession:
         print("[AUTH] 检测到未登录，自动重登…")
         self.login(self._username, self._password)
 
-    def _request_with_retry(self, method: str, url: str, **kwargs):
+    def _request_with_retry(self, method: str, url: str, **kwargs) -> requests.Response:
+        """带重试机制的请求封装"""
         timeout = kwargs.pop("timeout", self.timeout)
         headers = kwargs.pop("headers", None) or self.headers
 
-        # 失败重试次数（抢课阶段建议 3~6）
+        # 失败重试次数(抢课阶段建议 3~6)
         max_retry = kwargs.pop("max_retry", 4)
 
         # 指数退避参数
@@ -348,13 +373,13 @@ class JWSSession:
 
         raise RuntimeError("unreachable")
 
-    def get(self, path: str, **kwargs):
+    def get(self, path: str, **kwargs) -> requests.Response:
         """所有业务请求都走这里：自动重登 + 重试 + timeout"""
         self._ensure_login()
         url = BASE_URL + path
         return self._request_with_retry("GET", url, **kwargs)
 
-    def post(self, path: str, **kwargs):
+    def post(self, path: str, **kwargs) -> requests.Response:
         """抢课一般是 POST，建议后续都走这里"""
         self._ensure_login()
         url = BASE_URL + path
