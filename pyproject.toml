@@ -1,12 +1,20 @@
 [project]
 name = "urp-academic-affairs-tools"
-version = "0.1.0"
+version = "0.2.0"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { text = "AGPL-3.0" }
 readme = "README.md"
-requires-python = ">=3.10"
-dependencies = []
+requires-python = ">=3.10,<3.11"
+dependencies = [
+    "onnxruntime (==1.23.2)",
+    "ddddocr (==1.4.7)",
+    "aiohttp (>=3.13.3,<4.0.0)",
+    "aiofiles (>=25.1.0,<26.0.0)",
+    "aioconsole (>=0.8.2,<0.9.0)",
+    "pillow (==9.5.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
+]
 
 
 [build-system]
