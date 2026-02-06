@@ -5,7 +5,7 @@ from typing import Dict, Any, List
 
 def parse_timetable(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     """
-    从教务系统返回的 JSON（xkxx 结构）中解析出课表明细
+    从教务系统返回的 JSON中解析出课表明细
     """
     result: List[Dict[str, Any]] = []
 
@@ -13,7 +13,6 @@ def parse_timetable(data: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not xkxx_list:
         return result
 
-    # xkxx 是一个 list，每个元素是一个课程的字典映射
     for course_map in xkxx_list:
         if not isinstance(course_map, dict):
             continue

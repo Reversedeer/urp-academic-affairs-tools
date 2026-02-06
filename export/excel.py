@@ -1,56 +1,22 @@
 """导出课表到 Excel 文件"""
 
-from typing import Any, Dict, List, Union
+import asyncio
+from typing import List, Dict, Any
+
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 
-def export_timetable_excel(
-    timetable_data: Union[Dict[str, Any], List[Any]], filename: str
-):
-    """
-    导出课表到 Excel
-    """
-    if isinstance(timetable_data, dict):
-        xkxx = timetable_data.get("xkxx", [])
-    else:
-        xkxx = timetable_data
-
-    courses: List[Dict[str, Any]] = []
-    parsed_mode = False
-    if isinstance(xkxx, list) and xkxx:
-        first = xkxx[0]
-        if isinstance(first, dict) and (
-            "course_name" in first or "courseName" in first
-        ):
-            parsed_mode = True
-
-    if parsed_mode:
-        courses = xkxx
-    else:
-        for item in xkxx or []:
-            if isinstance(item, dict):
-                for v in item.values():
-                    if isinstance(v, dict):
-                        courses.append(v)
-
+def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
     wb = Workbook()
+    ws = wb.active
     ws = wb.active
     if ws is None:
         return
     ws.title = "本学期课表"
 
-    headers = [
-        "课程名称",
-        "任课教师",
-        "学分",
-        "星期",
-        "节次",
-        "周次",
-        "教学楼",
-        "教室",
-    ]
+    headers = ["课程名称", "任课教师", "学分", "星期", "节次", "周次", "教学楼", "教室"]
     ws.append(headers)
 
     header_style = Font(bold=True)
@@ -62,29 +28,38 @@ def export_timetable_excel(
         cell.alignment = align_center
         ws.column_dimensions[get_column_letter(col)].width = 16
 
+    WEEKDAY = {
+        1: "周一",
+        2: "周二",
+        3: "周三",
+        4: "周四",
+        5: "周五",
+        6: "周六",
+        7: "周日",
+    }
+
     for item in courses:
-        course_name = item.get("course_name", "")
-        teacher = (item.get("teacher") or "").replace("*", "").strip()
-        credit = item.get("credit", "")
-        day = _weekday_to_cn(item.get("day", ""))
-        section = _format_section(
-            item.get("start_session", ""),
-            item.get("duration", ""),
+        day_raw = item.get("day")
+        day = WEEKDAY.get(day_raw, "") if isinstance(day_raw, int) else ""
+
+        start = item.get("start_session")
+        duration = item.get("duration")
+        section = (
+            f"{start}-{start + duration - 1}节"
+            if isinstance(start, int) and isinstance(duration, int)
+            else ""
         )
-        week = item.get("week_desc") or item.get("weeks") or ""
-        building = item.get("building") or item.get("teachingBuildingName") or ""
-        room = item.get("classroom") or ""
 
         ws.append(
             [
-                course_name,
-                teacher,
-                credit,
+                item.get("course_name", ""),
+                (item.get("teacher") or "").replace("*", "").strip(),
+                item.get("credit", ""),
                 day,
                 section,
-                week,
-                building,
-                room,
+                item.get("week_desc") or item.get("weeks") or "",
+                item.get("building") or item.get("teachingBuildingName") or "",
+                item.get("classroom") or item.get("classroomName") or "",
             ]
         )
 
@@ -95,21 +70,6 @@ def export_timetable_excel(
     wb.save(filename)
 
 
-def _weekday_to_cn(day: int) -> str:
-    mapping = {
-        1: "周一",
-        2: "周二",
-        3: "周三",
-        4: "周四",
-        5: "周五",
-        6: "周六",
-        7: "周日",
-    }
-    return mapping.get(day, "")
-
-
-def _format_section(start: int, length: int) -> str:
-    if not start or not length:
-        return ""
-    end = start + length - 1
-    return f"{start}-{end}节"
+async def export_timetable_excel(courses: List[Dict[str, Any]], filename: str) -> None:
+    """导出课表到 Excel"""
+    await asyncio.to_thread(_export_xlsx, courses, filename)
