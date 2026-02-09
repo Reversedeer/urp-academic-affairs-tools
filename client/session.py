@@ -1,17 +1,18 @@
-"""登录会话"""
+﻿"""登录会话"""
 
-import re
 import asyncio
-import aiohttp
-import ddddocr
 import hashlib
-import random
+import json
 import logging
-
+import random
+import re
 from collections import Counter
 from dataclasses import dataclass
 from io import BytesIO
-from typing import Optional
+from types import TracebackType
+
+import aiohttp
+import ddddocr
 from PIL import Image, ImageSequence
 
 BASE_URL = "https://jws.qgxy.cn"
@@ -21,15 +22,17 @@ CAPTCHA_URL = f"{BASE_URL}/img/captcha.jpg"
 INDEX_URL = f"{BASE_URL}/index.jsp"
 
 CODE_LEN = 4
+HTTP_STATUS_OK = 200
+MAX_RETRY = 100
 ASCII_CODE_RE = re.compile(r"^[A-Za-z0-9]{4}$")
-TOKEN_RE = re.compile(r'name="tokenValue"\s+value="([^"]+)"', re.I)
+TOKEN_RE = re.compile(r'name="tokenValue"\s+value="([^"]+)"', re.IGNORECASE)
 
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class RetryPolicy:
-    max_retry: int = 4
+    max_retry: int = 10
     base_sleep: float = 0.15
     max_sleep: float = 1.2
     jitter: float = 0.2
@@ -41,7 +44,7 @@ class AuthError(Exception): ...
 class ServiceError(Exception): ...
 
 
-class SessionExpired(Exception): ...
+class SessionExpiredError(Exception): ...
 
 
 class AsyncJWSSession:
@@ -51,13 +54,14 @@ class AsyncJWSSession:
         timeout_connect: float = 2.0,
         connector_limit: int = 50,
         retry: RetryPolicy = RetryPolicy(),
-        jitter_range=(0.0, 0.15),
+        jitter_range: tuple[float, float] = (0.0, 0.15),
     ) -> None:
         self._timeout = aiohttp.ClientTimeout(
-            total=timeout_total, connect=timeout_connect
+            total=timeout_total,
+            connect=timeout_connect,
         )
         self._connector = aiohttp.TCPConnector(limit=connector_limit, ttl_dns_cache=300)
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
 
         self.headers = {
             "User-Agent": (
@@ -73,7 +77,7 @@ class AsyncJWSSession:
         self._password = None
         self._ocr = ddddocr.DdddOcr(show_ad=False, beta=True)
 
-    async def __aenter__(self) -> "AsyncJWSSession":
+    async def __aenter__(self) -> "AsyncJWSSession":  # noqa: PYI034
         self._session = aiohttp.ClientSession(
             timeout=self._timeout,
             connector=self._connector,
@@ -82,7 +86,12 @@ class AsyncJWSSession:
         )
         return self
 
-    async def __aexit__(self, exc_type, exc, tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
         if self._session is not None:
             await self._session.close()
             self._session = None
@@ -97,14 +106,15 @@ class AsyncJWSSession:
         """获取tokenValue"""
         m: re.Match[str] | None = TOKEN_RE.search(html or "")
         if not m:
-            raise AuthError("tokenValue not found")
+            msg = "tokenValue not found"
+            raise AuthError(msg)
         return m.group(1)
 
     async def _sleep_jitter(self) -> None:
         """随机等待，防止请求过快"""
         lo, hi = self.jitter_range
         if hi > 0:
-            await asyncio.sleep(random.uniform(lo, hi))
+            await asyncio.sleep(random.uniform(lo, hi))  # noqa: S311
 
     def check_login_page(self, text: str) -> bool:
         """检查是否为登录页面"""
@@ -119,11 +129,12 @@ class AsyncJWSSession:
         """检查是否已登录"""
         if not self._session:
             log.error("session not started")
-            raise RuntimeError("session not started ")
+            msg = "session not started "
+            raise RuntimeError(msg)
 
         try:
             async with self._session.get(INDEX_URL, allow_redirects=False) as r:
-                if r.status == 200:
+                if r.status == HTTP_STATUS_OK:
                     txt = await r.text(errors="ignore")
                     return not self.check_login_page(txt)
                 if r.status in (301, 302, 303, 307, 308):
@@ -133,26 +144,27 @@ class AsyncJWSSession:
         except (aiohttp.ClientError, asyncio.TimeoutError):
             return False
 
-    async def login(self, username, password, max_retry: int = 10):
+    async def login(self, username: str, password: str) -> None:
         """登录教务系统，保存会话状态"""
         if not self._session:
-            raise RuntimeError("session not started")
+            msg = "session not started"
+            raise RuntimeError(msg)
 
         self._username = username
         self._password = password
 
-        for i in range(max_retry):
+        for i in range(MAX_RETRY):
             log.info("✨ 第 %d 次尝试登录:", i + 1)
             try:
                 async with self._session.get(LOGIN_PAGE) as r:
-                    if r.status != 200:
+                    if r.status != HTTP_STATUS_OK:
                         await self._sleep_jitter()
                         continue
                     html = await r.text(errors="ignore")
                 token = self._extract_token(html)
                 log.info("tokenValue: %s", token)
             except (aiohttp.ClientError, asyncio.TimeoutError, AuthError):
-                log.exception("获取登录页异常")
+                log.exception("获取登录页异常，请检查账号密码是否正确")
                 await self._sleep_jitter()
                 continue
 
@@ -178,7 +190,9 @@ class AsyncJWSSession:
             }
             try:
                 async with self._session.post(
-                    LOGIN_URL, data=data, allow_redirects=True
+                    LOGIN_URL,
+                    data=data,
+                    allow_redirects=True,
                 ) as _:
                     pass
             except (aiohttp.ClientError, asyncio.TimeoutError):
@@ -192,7 +206,8 @@ class AsyncJWSSession:
             log.warning("❌ 登录失败，重试中...")
             await self._sleep_jitter()
         log.error("❌ 登录失败，达到最大重试次数")
-        raise AuthError("login failed")
+        msg = "login failed"
+        raise AuthError(msg)
 
     async def _ensure_login(self) -> None:
         """确保已登录，未登录则自动重登"""
@@ -200,7 +215,8 @@ class AsyncJWSSession:
             return
         if not self._username or not self._password:
             log.error("未登录且未保存账号密码，无法自动重登")
-            raise SessionExpired("not logged in and no saved credentials")
+            msg = "not logged in and no saved credentials"
+            raise SessionExpiredError(msg)
         log.info("session已过期，自动重登…")
         await self.login(self._username, self._password)
 
@@ -208,12 +224,13 @@ class AsyncJWSSession:
         """获取验证码图片"""
         if not self._session:
             log.error("验证码未正常加载")
-            raise RuntimeError("session not started")
+            msg = "session not started"
+            raise RuntimeError(msg)
 
         for _ in range(max_retry):
             try:
                 async with self._session.get(CAPTCHA_URL, allow_redirects=True) as r:
-                    if r.status != 200:
+                    if r.status != HTTP_STATUS_OK:
                         await self._sleep_jitter()
                         continue
 
@@ -227,7 +244,6 @@ class AsyncJWSSession:
                             pass
                     except Exception:
                         log.exception("刷新登录页出错")
-                        pass
                     await self._sleep_jitter()
                     continue
 
@@ -239,7 +255,8 @@ class AsyncJWSSession:
                 log.exception("获取验证码请求异常")
                 await self._sleep_jitter()
         log.error("验证码获取失败")
-        raise AuthError("captcha fetch failed")
+        msg = "captcha fetch failed"
+        raise AuthError(msg)
 
     async def _verify_image(self, img_bytes: bytes) -> bool:
         """校验验证码合法性"""
@@ -249,10 +266,11 @@ class AsyncJWSSession:
             try:
                 img = Image.open(BytesIO(img_bytes))
                 img.verify()
-                return True
             except Exception:
                 log.exception("验证码图片校验失败")
                 return False
+            else:
+                return True
 
         return await loop.run_in_executor(None, _verify)
 
@@ -260,7 +278,7 @@ class AsyncJWSSession:
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(None, self._parse_captcha, img_bytes)
 
-    def _parse_captcha(self, img_bytes: bytes) -> str:
+    def _parse_captcha(self, img_bytes: bytes) -> str:  # noqa: C901
         """
         验证码解析策略：
         - full OCR
@@ -283,7 +301,8 @@ class AsyncJWSSession:
 
         def ocr_img(pil_img: Image.Image) -> str:
             pil_img = pil_img.resize(
-                (pil_img.width * 2, pil_img.height * 2), Image.NEAREST
+                (pil_img.width * 2, pil_img.height * 2),
+                Image.NEAREST,
             )
             buf = BytesIO()
             pil_img.save(buf, format="PNG")
@@ -298,7 +317,7 @@ class AsyncJWSSession:
         norm_full = normalize(ocr_img(base))
         log.info("Full OCR result: '%s'", norm_full)
 
-        if sum(1 for ch in norm_full if ch.isalnum()) < 3:
+        if sum(1 for ch in norm_full if ch.isalnum()) < 3:  # noqa: PLR2004
             log.warning("Full OCR 非4位ASCII字母数字/非数字答案，重试中...")
             return ""
 
@@ -340,22 +359,36 @@ class AsyncJWSSession:
             return norm_full
         return ""
 
-    async def request_text(
+    async def request_text(  # noqa: C901, PLR0913
         self,
         method: str,
         path: str,
         *,
-        params=None,
-        data=None,
-        json=None,
+        params: dict | None = None,
+        data: dict | None = None,
+        json: dict | None = None,
         allow_redirects: bool = True,
-        retry: Optional[RetryPolicy] = None,
+        retry: RetryPolicy | None = None,
     ) -> str:
         """自动处理重试和登录过期"""
+
+        def _raise_session_expired() -> None:
+            msg = "looks like login page"
+            raise SessionExpiredError(msg)
+
+        def _raise_retryable_service_error(status: int) -> None:
+            msg = f"retryable status {status}"
+            raise ServiceError(msg)
+
+        def _raise_service_error(status: int) -> None:
+            msg = f"status {status}"
+            raise ServiceError(msg)
+
         await self._ensure_login()
         if not self._session:
             log.error("session not started")
-            raise RuntimeError("session not started")
+            msg = "session not started"
+            raise RuntimeError(msg)
 
         url = (
             path
@@ -378,39 +411,41 @@ class AsyncJWSSession:
 
                     if self.check_login_page(txt):
                         log.info("looks like login page")
-                        raise SessionExpired("looks like login page")
+                        _raise_session_expired()
 
                     if r.status in (429, 502, 503, 504):
                         log.warning("retryable status %d", r.status)
-                        raise ServiceError(f"retryable status {r.status}")
+                        _raise_retryable_service_error(r.status)
 
-                    if r.status >= 400:
+                    if r.status >= 400:  # noqa: PLR2004
                         log.error("non-retryable status %d", r.status)
-                        raise ServiceError(f"status {r.status}")
+                        _raise_service_error(r.status)
 
                     return txt
 
-            except SessionExpired:
-                await self.login(self._username, self._password)
+            except SessionExpiredError:  # noqa: PERF203
+                if self._username and self._password:
+                    await self.login(self._username, self._password)
+                else:
+                    raise
             except (aiohttp.ClientError, asyncio.TimeoutError, ServiceError):
                 if attempt == pol.max_retry:
                     log.exception("达到最大重试次数, 已放弃请求登录")
                     raise
                 sleep = min(
-                    pol.max_sleep, pol.base_sleep * (2 ** (attempt - 1))
-                ) + random.uniform(0, pol.jitter)
+                    pol.max_sleep,
+                    pol.base_sleep * (2 ** (attempt - 1)),
+                ) + random.uniform(0, pol.jitter)  # noqa: S311
                 await asyncio.sleep(sleep)
 
-        raise ServiceError("unreachable")
+        msg = "unreachable"
+        raise ServiceError(msg)
 
-    async def request_json(self, method: str, path: str, **kwargs) -> dict:
+    async def request_json(self, method: str, path: str, **kwargs) -> dict:  # noqa: ANN003
         """发送请求并解析 JSON 响应"""
         txt = await self.request_text(method, path, **kwargs)
-        # request_text 已保证不是登录页/且 status<400；这里解析 JSON
         try:
-            import json as _json
-
-            return _json.loads(txt)
-        except Exception:
-            # 某些接口 content-type 正常但仍可能不是 JSON
-            raise ServiceError("response is not json")
+            return json.loads(txt)
+        except ValueError:
+            msg = "response is not json"
+            raise ServiceError(msg) from None

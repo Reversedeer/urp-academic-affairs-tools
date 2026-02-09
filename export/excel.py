@@ -1,14 +1,14 @@
 """导出课表到 Excel 文件"""
 
 import asyncio
-from typing import List, Dict, Any
+from typing import Any
 
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 from openpyxl.utils import get_column_letter
 
 
-def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
+def _export_xlsx(courses: list[dict[str, Any]], filename: str) -> None:
     wb = Workbook()
     ws = wb.active
     ws = wb.active
@@ -28,7 +28,7 @@ def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
         cell.alignment = align_center
         ws.column_dimensions[get_column_letter(col)].width = 16
 
-    WEEKDAY = {
+    weekday = {
         1: "周一",
         2: "周二",
         3: "周三",
@@ -40,7 +40,7 @@ def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
 
     for item in courses:
         day_raw = item.get("day")
-        day = WEEKDAY.get(day_raw, "") if isinstance(day_raw, int) else ""
+        day = weekday.get(day_raw, "") if isinstance(day_raw, int) else ""
 
         start = item.get("start_session")
         duration = item.get("duration")
@@ -60,7 +60,7 @@ def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
                 item.get("week_desc") or item.get("weeks") or "",
                 item.get("building") or item.get("teachingBuildingName") or "",
                 item.get("classroom") or item.get("classroomName") or "",
-            ]
+            ],
         )
 
     for row in ws.iter_rows(min_row=2):
@@ -70,6 +70,6 @@ def _export_xlsx(courses: List[Dict[str, Any]], filename: str) -> None:
     wb.save(filename)
 
 
-async def export_timetable_excel(courses: List[Dict[str, Any]], filename: str) -> None:
+async def export_timetable_excel(courses: list[dict[str, Any]], filename: str) -> None:
     """导出课表到 Excel"""
     await asyncio.to_thread(_export_xlsx, courses, filename)

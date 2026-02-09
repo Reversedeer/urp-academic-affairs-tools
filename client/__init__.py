@@ -1,5 +1,4 @@
+from .api import fetch_tasks, get_this_semester_timetable
 from .session import AsyncJWSSession
-from .api import get_this_semester_timetable, fetch_tasks
 
-
-__all__ = ["AsyncJWSSession", "get_this_semester_timetable", "fetch_tasks"]
+__all__ = ["AsyncJWSSession", "fetch_tasks", "get_this_semester_timetable"]

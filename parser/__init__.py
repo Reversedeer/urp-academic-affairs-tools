@@ -1,4 +1,4 @@
-from .timetable import parse_timetable
 from .evaluation import TeachingEvaluationClient
+from .timetable import parse_timetable
 
-__all__ = ["parse_timetable", "TeachingEvaluationClient"]
+__all__ = ["TeachingEvaluationClient", "parse_timetable"]
