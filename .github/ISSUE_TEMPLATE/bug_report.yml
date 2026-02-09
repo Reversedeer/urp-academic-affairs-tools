@@ -1,5 +1,5 @@
 name: 🐛 错误报告
-title: "Bug: 出现异常"
+title: "Bug: "
 description: 提交 Bug 反馈以帮助我们改进代码
 labels: ["bug"]
 body:
