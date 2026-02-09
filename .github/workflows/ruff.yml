@@ -1,0 +1,18 @@
+name: Ruff
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Ruff Lint
+        uses: chartboost/ruff-action@v1
