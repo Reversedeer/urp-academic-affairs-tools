@@ -1,14 +1,14 @@
 """入口文件 main"""
 
-import logging
 import asyncio
+import logging
+
 import aioconsole
 
-
-from client import AsyncJWSSession, get_this_semester_timetable, fetch_tasks
+from client import AsyncJWSSession, fetch_tasks, get_this_semester_timetable
+from config import PASSWORD, USERNAME
 from export import export_timetable_excel
 from parser import TeachingEvaluationClient, parse_timetable
-from config import USERNAME, PASSWORD
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,17 +19,17 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
-def menu():
-    print("========================")
-    print("欢迎使用教务系统工具")
-    print("1. 抢课(开发中)")
-    print("2. 导出课表")
-    print("3. 教学评估")
-    print("0. 退出")
-    print("========================\n")
+def menu() -> None:
+    log.info("========================")
+    log.info("欢迎使用教务系统工具")
+    log.info("1. 抢课(开发中)")
+    log.info("2. 导出课表")
+    log.info("3. 教学评估")
+    log.info("0. 退出")
+    log.info("========================\n")
 
 
-async def handle_view_timetable(jws: AsyncJWSSession):
+async def handle_view_timetable(jws: AsyncJWSSession) -> None:
     raw = await get_this_semester_timetable(jws)
     courses = parse_timetable(raw)
     if not courses:
@@ -40,13 +40,13 @@ async def handle_view_timetable(jws: AsyncJWSSession):
     log.info(f"本学期课表已导出：{out}")
 
 
-async def handle_teaching_evaluation(jws: AsyncJWSSession):
+async def handle_teaching_evaluation(jws: AsyncJWSSession) -> None:
     data = await fetch_tasks(jws)
     await TeachingEvaluationClient().run(jws, data)
     log.info("评教结束")
 
 
-async def main():
+async def main() -> None:
     async with AsyncJWSSession() as jws:
         await jws.login(USERNAME, PASSWORD)
 
