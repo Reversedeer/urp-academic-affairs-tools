@@ -1,11 +1,11 @@
 [project]
 name = "urp-academic-affairs-tools"
-version = "0.2.1"
+version = "0.2.2"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { file = "LICENSE" }
 readme = "README.md"
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10, <3.11"
 dependencies = [
     "onnxruntime (==1.23.2)",
     "ddddocr (==1.4.7)",
