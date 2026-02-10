@@ -10,11 +10,6 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - uses: actions/setup-python@v6
-      with:
-        python-version: ${{ inputs.python-version }}
-        cache: "poetry"
-
     - name: Install pipx
       run: |
         python -m pip install --user pipx
@@ -29,3 +24,8 @@ runs:
       run: |
         poetry install --without dev --no-root --sync
       shell: bash
+
+    - uses: actions/setup-python@v6
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: "poetry"
