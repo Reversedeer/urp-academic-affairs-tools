@@ -1,6 +1,6 @@
 [project]
-name = "urp-academic-affairs-tools"
-version = "0.2.3.2"
+name = "urp-tools"
+version = "0.2.3.3"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { file = "LICENSE" }
@@ -16,6 +16,10 @@ dependencies = [
     "openpyxl (>=3.1.5,<4.0.0)",
 ]
 
+[tool.poetry]
+name = "urp-tools"
+version = "0.2.3.3"
+authors = ["Reversedeer"]
 packages = [
     { include = "urp_academic_affairs_tools" }
 ]
