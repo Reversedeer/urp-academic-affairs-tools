@@ -16,6 +16,11 @@ runs:
         python -m pip install poetry
       shell: bash
 
+    - name: Poetry Environment
+      run: |
+        poetry env use "$(command -v python)"
+      shell: bash
+
     - name: Install dependencies
       run: |
         poetry install --without dev --no-root
