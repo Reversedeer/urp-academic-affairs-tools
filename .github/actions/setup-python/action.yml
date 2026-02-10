@@ -20,6 +20,11 @@ runs:
         pipx install poetry
       shell: bash
 
+    - name: Ensure pipx path
+      run: |
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+      shell: bash
+
     - name: Install dependencies
       run: |
         poetry install --without dev --no-root --sync
