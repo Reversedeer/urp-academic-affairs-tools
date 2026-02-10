@@ -10,24 +10,16 @@ inputs:
 runs:
   using: "composite"
   steps:
-    - name: Install pipx
-      run: |
-        python -m pip install --user pipx
-      shell: bash
-
     - name: Install Poetry
       run: |
-        pipx install poetry
-      shell: bash
-
-    - name: Ensure pipx path
-      run: |
-        echo "$HOME/.local/bin" >> $GITHUB_PATH
+        python -m pip install --upgrade pip
+        python -m pip install poetry
       shell: bash
 
     - name: Install dependencies
       run: |
-        poetry install --without dev --no-root --sync
+        poetry install --without dev --no-root
+        poetry sync
       shell: bash
 
     - uses: actions/setup-python@v6
