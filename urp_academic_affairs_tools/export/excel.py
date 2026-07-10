@@ -1,75 +1,141 @@
-"""导出课表到 Excel 文件"""
+"""将课表明细导出为 Excel 工作簿。"""
 
 import asyncio
-from typing import Any
+from collections.abc import Mapping, Sequence
+from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font
+from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+HEADERS = (
+    "课程名称",
+    "任课教师",
+    "学分",
+    "星期",
+    "节次",
+    "周次",
+    "教学楼",
+    "教室",
+)
+WEEKDAY_NAMES = {
+    1: "周一",
+    2: "周二",
+    3: "周三",
+    4: "周四",
+    5: "周五",
+    6: "周六",
+    7: "周日",
+}
+COLUMN_WIDTHS = (24, 16, 10, 10, 14, 20, 18, 18)
+UNKNOWN_SORT_POSITION = 99
 
-def _export_xlsx(courses: list[dict[str, Any]], filename: str) -> None:
-    wb = Workbook()
-    ws = wb.active
-    ws = wb.active
-    if ws is None:
-        return
-    ws.title = "本学期课表"
 
-    headers = ["课程名称", "任课教师", "学分", "星期", "节次", "周次", "教学楼", "教室"]
-    ws.append(headers)
+def _as_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return None
+    return None
 
-    header_style = Font(bold=True)
-    align_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    for col in range(1, len(headers) + 1):
-        cell = ws.cell(row=1, column=col)
-        cell.font = header_style
-        cell.alignment = align_center
-        ws.column_dimensions[get_column_letter(col)].width = 16
+def _as_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
 
-    weekday = {
-        1: "周一",
-        2: "周二",
-        3: "周三",
-        4: "周四",
-        5: "周五",
-        6: "周六",
-        7: "周日",
-    }
 
-    for item in courses:
-        day_raw = item.get("day")
-        day = weekday.get(day_raw, "") if isinstance(day_raw, int) else ""
+def _course_sort_key(item: Mapping[str, object]) -> tuple[int, int, str]:
+    day = _as_int(item.get("day"))
+    start_session = _as_int(item.get("start_session"))
+    return (
+        day if day is not None else UNKNOWN_SORT_POSITION,
+        start_session if start_session is not None else UNKNOWN_SORT_POSITION,
+        _as_text(item.get("course_name")),
+    )
 
-        start = item.get("start_session")
-        duration = item.get("duration")
-        section = (
-            f"{start}-{start + duration - 1}节"
-            if isinstance(start, int) and isinstance(duration, int)
-            else ""
+
+def _format_section(start: object, duration: object) -> str:
+    start_number = _as_int(start)
+    duration_number = _as_int(duration)
+    if start_number is None or duration_number is None or duration_number < 1:
+        return ""
+    end_number = start_number + duration_number - 1
+    return f"{start_number}-{end_number}节"
+
+
+def _row_values(item: Mapping[str, object]) -> list[object]:
+    day = _as_int(item.get("day"))
+    weekday = WEEKDAY_NAMES.get(day, "") if day is not None else ""
+    teacher = _as_text(item.get("teacher")).replace("*", "").strip()
+    week_description = item.get("week_desc") or item.get("weeks") or ""
+    building = item.get("building") or item.get("teachingBuildingName") or ""
+    classroom = item.get("classroom") or item.get("classroomName") or ""
+    return [
+        _as_text(item.get("course_name")),
+        teacher,
+        item.get("credit", ""),
+        weekday,
+        _format_section(item.get("start_session"), item.get("duration")),
+        _as_text(week_description),
+        _as_text(building),
+        _as_text(classroom),
+    ]
+
+
+def _export_xlsx(
+    courses: Sequence[Mapping[str, object]],
+    filename: Path,
+) -> Path:
+    filename.parent.mkdir(parents=True, exist_ok=True)
+    workbook = Workbook()
+    try:
+        worksheet = workbook.active
+        if worksheet is None:
+            msg = "workbook did not create an active worksheet"
+            raise RuntimeError(msg)
+
+        worksheet.title = "本学期课表"
+        worksheet.freeze_panes = "A2"
+        worksheet.append(HEADERS)
+
+        header_font = Font(bold=True, color="FFFFFF")
+        header_fill = PatternFill(fill_type="solid", fgColor="1F4E78")
+        centered = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True,
         )
 
-        ws.append(
-            [
-                item.get("course_name", ""),
-                (item.get("teacher") or "").replace("*", "").strip(),
-                item.get("credit", ""),
-                day,
-                section,
-                item.get("week_desc") or item.get("weeks") or "",
-                item.get("building") or item.get("teachingBuildingName") or "",
-                item.get("classroom") or item.get("classroomName") or "",
-            ],
-        )
+        for column, width in enumerate(COLUMN_WIDTHS, start=1):
+            cell = worksheet.cell(row=1, column=column)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = centered
+            worksheet.column_dimensions[get_column_letter(column)].width = width
 
-    for row in ws.iter_rows(min_row=2):
-        for cell in row:
-            cell.alignment = align_center
+        for item in sorted(courses, key=_course_sort_key):
+            worksheet.append(_row_values(item))
 
-    wb.save(filename)
+        for row in worksheet.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = centered
+
+        worksheet.auto_filter.ref = worksheet.dimensions
+        workbook.save(filename)
+    finally:
+        workbook.close()
+    return filename
 
 
-async def export_timetable_excel(courses: list[dict[str, Any]], filename: str) -> None:
-    """导出课表到 Excel"""
-    await asyncio.to_thread(_export_xlsx, courses, filename)
+async def export_timetable_excel(
+    courses: Sequence[Mapping[str, object]],
+    filename: str | Path,
+) -> Path:
+    """在线程池中导出课表，避免阻塞异步事件循环。"""
+    return await asyncio.to_thread(_export_xlsx, courses, Path(filename))

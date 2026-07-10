@@ -1,46 +1,84 @@
-"""获取并解析课表数据的模块"""
+"""将教务系统课表响应转换为稳定的课程明细。"""
 
-from typing import Any
+from collections.abc import Iterator, Mapping
+from typing import TypedDict
 
 
-def parse_timetable(data: dict[str, Any]) -> list[dict[str, Any]]:
-    """
-    从教务系统返回的 JSON中解析出课表明细
-    """
-    result: list[dict[str, Any]] = []
+class TimetableEntry(TypedDict):
+    course_name: str
+    teacher: str
+    day: int | None
+    start_session: int | None
+    duration: int | None
+    weeks: object
+    week_desc: str
+    campus: str
+    building: str
+    classroom: str
+    credit: object
 
-    xkxx_list = data.get("xkxx", [])
-    if not xkxx_list:
-        return result
 
-    for course_map in xkxx_list:
-        if not isinstance(course_map, dict):
+def _clean_text(value: object) -> str:
+    if value is None:
+        return ""
+    return str(value).strip()
+
+
+def _optional_int(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _iter_courses(data: Mapping[str, object]) -> Iterator[Mapping[str, object]]:
+    course_groups = data.get("xkxx", [])
+    if not isinstance(course_groups, list):
+        return
+
+    for group in course_groups:
+        if not isinstance(group, Mapping):
             continue
+        yield from (course for course in group.values() if isinstance(course, Mapping))
 
-        for course in course_map.values():
-            course_name = course.get("courseName", "")
-            teacher = course.get("attendClassTeacher", "").strip()
-            credit = course.get("unit", 0)
 
-            time_list = course.get("timeAndPlaceList", [])
-            if not time_list:
-                continue
+def _build_entry(
+    course: Mapping[str, object],
+    time_and_place: Mapping[str, object],
+) -> TimetableEntry:
+    return {
+        "course_name": _clean_text(course.get("courseName")),
+        "teacher": _clean_text(course.get("attendClassTeacher")),
+        "day": _optional_int(time_and_place.get("classDay")),
+        "start_session": _optional_int(time_and_place.get("classSessions")),
+        "duration": _optional_int(time_and_place.get("continuingSession")),
+        "weeks": time_and_place.get("classWeek", ""),
+        "week_desc": _clean_text(time_and_place.get("weekDescription")),
+        "campus": _clean_text(time_and_place.get("campusName")),
+        "building": _clean_text(time_and_place.get("teachingBuildingName")),
+        "classroom": _clean_text(time_and_place.get("classroomName")),
+        "credit": course.get("unit", ""),
+    }
 
-            result.extend(
-                {
-                    "course_name": course_name,
-                    "teacher": teacher,
-                    "day": t.get("classDay"),
-                    "start_session": t.get("classSessions"),
-                    "duration": t.get("continuingSession"),
-                    "weeks": t.get("classWeek"),
-                    "week_desc": t.get("weekDescription"),
-                    "campus": t.get("campusName"),
-                    "building": t.get("teachingBuildingName"),
-                    "classroom": t.get("classroomName"),
-                    "credit": credit,
-                }
-                for t in time_list
-            )
 
+def parse_timetable(data: Mapping[str, object]) -> list[TimetableEntry]:
+    """解析课表响应，并跳过结构不完整的课程或上课时间。"""
+    result: list[TimetableEntry] = []
+    for course in _iter_courses(data):
+        time_and_place_list = course.get("timeAndPlaceList", [])
+        if not isinstance(time_and_place_list, list):
+            continue
+        result.extend(
+            _build_entry(course, time_and_place)
+            for time_and_place in time_and_place_list
+            if isinstance(time_and_place, Mapping)
+        )
     return result
