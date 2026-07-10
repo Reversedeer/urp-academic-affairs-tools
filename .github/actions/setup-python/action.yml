@@ -22,6 +22,5 @@ runs:
 
     - name: Install dependencies
       run: |
-        poetry install --without dev --no-root
-        poetry sync --without dev --no-root
+        poetry install --without dev
       shell: bash
