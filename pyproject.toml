@@ -1,6 +1,6 @@
 [project]
 name = "urp-tools"
-version = "0.2.3.3"
+version = "0.3.0"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { file = "LICENSE" }
@@ -16,9 +16,12 @@ dependencies = [
     "openpyxl (>=3.1.5,<4.0.0)",
 ]
 
+[project.scripts]
+urp-tools = "urp_academic_affairs_tools.main:run"
+
 [tool.poetry]
 name = "urp-tools"
-version = "0.2.3.3"
+version = "0.3.0"
 authors = ["Reversedeer"]
 packages = [
     { include = "urp_academic_affairs_tools" }
@@ -105,6 +108,7 @@ ignore = [
     "S324",
     "N999",  # ignore all naming issues
     "I001",  # import order
+    "COM812", # conflicts with the formatter's trailing-comma handling
 ]
 
 [tool.ruff.lint.flake8-annotations]
@@ -116,3 +120,11 @@ builtins-ignorelist = ["id"]
 [tool.ruff.lint.isort]
 force-sort-within-sections = false
 extra-standard-library = ["typing_extensions"]
+
+[tool.mypy]
+python_version = "3.10"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+warn_redundant_casts = true
+warn_unused_ignores = true
