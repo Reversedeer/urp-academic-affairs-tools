@@ -1,20 +1,34 @@
-"""教学评估任务解析与提交。"""
+"""教学评估任务解析、交互与提交。"""
+
+from __future__ import annotations
 
 import asyncio
 import html
 import logging
-from html.parser import HTMLParser
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
+from html.parser import HTMLParser
+from typing import TYPE_CHECKING
+
+import aioconsole
+
+if TYPE_CHECKING:
+    if __package__ and __package__.startswith("urp_academic_affairs_tools"):
+        from ..client.session import AsyncJWSSession  # noqa: TID252
+        from ..config import Settings  # noqa: TID252
+    else:
+        from client.session import AsyncJWSSession
+        from config import Settings
 
 if __package__ and __package__.startswith("urp_academic_affairs_tools"):
+    from ..client import fetch_tasks  # noqa: TID252
     from ..client.auth import extract_token_value  # noqa: TID252
-    from ..client.errors import ServiceError  # noqa: TID252
-    from ..client.session import AsyncJWSSession  # noqa: TID252
+    from ..client.errors import AuthError, ServiceError  # noqa: TID252
 else:
+    from client import fetch_tasks  # type: ignore[no-redef]
+    from client.errors import AuthError  # type: ignore[no-redef]
     from client.auth import extract_token_value  # type: ignore[no-redef]
     from client.errors import ServiceError  # type: ignore[no-redef]
-    from client.session import AsyncJWSSession  # type: ignore[no-redef]
 
 EVALUATION_INDEX_PATH = "/student/teachingEvaluation/evaluation/index"
 EVALUATION_PAGE_PATHS = (
@@ -88,7 +102,7 @@ class EvaluationCancelledError(EvaluationError):
 class EvaluationBatchError(EvaluationError):
     """部分课程评教提交失败。"""
 
-    def __init__(self, results: Sequence["EvaluationSubmitResult"]) -> None:
+    def __init__(self, results: Sequence[EvaluationSubmitResult]) -> None:
         self.results = tuple(results)
         failed = [result for result in self.results if result.error is not None]
         msg = f"评教提交失败 {len(failed)} 门"
@@ -151,7 +165,7 @@ class EvaluationForm:
     textarea_names: Sequence[str]
 
     @classmethod
-    def from_html(cls, page_html: str) -> "EvaluationForm":
+    def from_html(cls, page_html: str) -> EvaluationForm:
         parser = _EvaluationFormParser()
         parser.feed(page_html)
         fields, radio_groups, textarea_names = parser.form_fields()
@@ -166,7 +180,7 @@ class EvaluationForm:
         *,
         choice: str,
         comment: str,
-        fallback_task: "EvaluationTask",
+        fallback_task: EvaluationTask,
         fallback_token: str,
     ) -> dict[str, str]:
         payload = dict(self.fields)
@@ -254,7 +268,7 @@ class EvaluationTask:
     course_name: str
 
     @classmethod
-    def from_payload(cls, payload: Mapping[str, object]) -> "EvaluationTask":
+    def from_payload(cls, payload: Mapping[str, object]) -> EvaluationTask:
         identifier = _require_mapping(payload, "id")
         questionnaire = _require_mapping(payload, "questionnaire")
         is_evaluated = str(payload.get("isEvaluated", "")).strip() == "是"
@@ -348,7 +362,11 @@ class TeachingEvaluationClient:
     @staticmethod
     def extract_token(html: str) -> str:
         """从评教页面提取 tokenValue。"""
-        return extract_token_value(html)
+        try:
+            return extract_token_value(html)
+        except AuthError as error:
+            msg = _build_missing_token_message(html)
+            raise EvaluationError(msg) from error
 
     @staticmethod
     def build_page_form(task: EvaluationTask, token: str) -> dict[str, str]:
@@ -574,3 +592,141 @@ class TeachingEvaluationClient:
         tasks_to_submit = selected[: self.submit_limit]
         await self._confirm_submission(tasks_to_submit)
         return await self._submit_tasks(jws, tasks_to_submit)
+
+
+async def handle_teaching_evaluation(
+    jws: AsyncJWSSession,
+    settings: Settings,
+) -> None:
+    try:
+        data = await fetch_tasks(jws)
+        tasks = TeachingEvaluationClient.tasks_from_data(data)
+        selected_tasks = await _choose_evaluation_tasks(tasks)
+        if selected_tasks is None:
+            return
+
+        client = TeachingEvaluationClient(
+            options=EvaluationOptions(
+                default_choice=settings.default_choice,
+                comment=settings.default_comment,
+                wait_seconds=settings.evaluation_wait_seconds,
+                submit_limit=settings.evaluation_limit,
+                concurrency=settings.evaluation_concurrency,
+            ),
+            confirm=_confirm_evaluation,
+        )
+        submitted = await client.run(jws, data, selected_tasks=selected_tasks)
+    except EvaluationCancelledError:
+        log.warning("未通过最终确认，已取消评教")
+        return
+    except EvaluationBatchError as error:
+        succeeded = sum(result.succeeded for result in error.results)
+        failed = len(error.results) - succeeded
+        log.warning("评教结束：成功 %d 门，失败 %d 门", succeeded, failed)
+        return
+    except (EvaluationError, ServiceError, ValueError) as error:
+        log.warning("评教失败：%s", error)
+        return
+    except Exception:
+        log.exception("评教出现未处理异常")
+        return
+
+    log.info("评教结束，共提交 %d 门课程", submitted)
+
+
+async def _confirm_evaluation(tasks: Sequence[EvaluationTask]) -> bool:
+    log.warning("共有 %d 门课程，一旦提交无法修改", len(tasks))
+    for task in tasks:
+        log.warning("- %s | %s", task.teacher_name, task.course_name)
+    log.warning("若确认继续，请完整输入：%s", CONFIRM_PHRASE)
+    user_input = (await aioconsole.ainput("请输入确认语句：")).strip()
+    return user_input == CONFIRM_PHRASE
+
+
+def _show_evaluation_tasks(tasks: Sequence[EvaluationTask]) -> None:
+    if not tasks:
+        log.info("没有查询到评教任务")
+        return
+    log.info("评教任务列表：")
+    for index, task in enumerate(tasks, start=1):
+        status = "已评教" if task.is_evaluated else "未评教"
+        log.info(
+            "%2d. [%s] %s | %s | %s",
+            index,
+            status,
+            task.course_name,
+            task.teacher_name,
+            task.questionnaire_name,
+        )
+
+
+def _parse_task_selection(
+    raw_choice: str,
+    tasks: Sequence[EvaluationTask],
+) -> list[EvaluationTask]:
+    normalized = raw_choice.strip().lower()
+    if normalized in {"all", "a", "全部"}:
+        return [task for task in tasks if not task.is_evaluated]
+
+    selected: list[EvaluationTask] = []
+    seen: set[int] = set()
+    for raw_part in normalized.replace("，", ",").split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        try:
+            index = int(part)
+        except ValueError as error:
+            msg = "请输入课程序号，多个序号用逗号分隔，或输入 all"
+            raise ValueError(msg) from error
+        if index < 1 or index > len(tasks):
+            msg = f"课程序号超出范围：{index}"
+            raise ValueError(msg)
+        if index in seen:
+            continue
+        seen.add(index)
+        selected.append(tasks[index - 1])
+    return selected
+
+
+async def _choose_evaluation_tasks(
+    tasks: Sequence[EvaluationTask],
+) -> list[EvaluationTask] | None:
+    _show_evaluation_tasks(tasks)
+    if not any(not task.is_evaluated for task in tasks):
+        log.info("所有课程都已评教")
+        return None
+
+    prompt = (
+        "请输入要评教的序号，多个用逗号分隔；输入 all 评教全部未评教；输入 0 返回："
+    )
+    while True:
+        choice = (await aioconsole.ainput(prompt)).strip()
+        if choice in {"0", "q", "Q"}:
+            return None
+        try:
+            selected = _parse_task_selection(choice, tasks)
+        except ValueError as error:
+            log.warning("%s", error)
+            continue
+        selected = [task for task in selected if not task.is_evaluated]
+        if selected:
+            return selected
+        log.warning("没有选中未评教课程，请重新选择")
+
+
+def _build_missing_token_message(html: str) -> str:
+    normalized = html.replace(" ", "").replace("\n", "").replace("\r", "")
+    markers = (
+        "截止",
+        "结束",
+        "不可评",
+        "不能评",
+        "无需评教",
+        "已完成",
+        "未开放",
+        "关闭",
+    )
+    if any(marker in normalized for marker in markers):
+        return "评教页面未返回 tokenValue，评教可能已截止、未开放或当前课程不可评"
+    return "评教页面未返回 tokenValue，页面结构可能已变化或当前状态不允许提交"

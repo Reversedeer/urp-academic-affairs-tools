@@ -11,8 +11,6 @@ DEFAULT_COMMENT_TEXT = "老师教学认真课程收获较大"
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / ".env"
 ENV_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
-TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
-FALSE_VALUES = frozenset({"0", "false", "no", "off"})
 MIN_QUOTED_VALUE_LENGTH = 2
 
 
@@ -90,16 +88,6 @@ def _read_env_file(path: Path) -> dict[str, str]:
             value = value[1:-1]
         values[key] = value
     return values
-
-
-def _parse_bool(value: str, *, name: str) -> bool:
-    normalized = value.strip().lower()
-    if normalized in TRUE_VALUES:
-        return True
-    if normalized in FALSE_VALUES:
-        return False
-    msg = f"{name} 必须是 true/false、1/0、yes/no 或 on/off"
-    raise ValueError(msg)
 
 
 def _parse_optional_positive_int(value: str | None, *, name: str) -> int | None:
