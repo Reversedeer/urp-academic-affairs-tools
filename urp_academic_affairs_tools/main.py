@@ -20,6 +20,7 @@ if __package__:
         get_this_semester_timetable,
     )
     from .config import load_settings
+    from .course_selection import handle_course_drop, handle_course_selection
     from .export import export_timetable_excel
     from .parser.evaluation import handle_teaching_evaluation
     from .parser.timetable import parse_timetable
@@ -31,6 +32,10 @@ else:
         get_this_semester_timetable,
     )
     from config import load_settings  # type: ignore[no-redef]
+    from course_selection import (  # type: ignore[no-redef]
+        handle_course_drop,
+        handle_course_selection,
+    )
     from export import export_timetable_excel  # type: ignore[no-redef]
     from parser.evaluation import handle_teaching_evaluation  # type: ignore[no-redef]
     from parser.timetable import parse_timetable  # type: ignore[no-redef]
@@ -48,6 +53,8 @@ def menu() -> None:
     log.info("欢迎使用教务系统工具")
     log.info("1. 导出课表")
     log.info("2. 教学评估")
+    log.info("3. 选课")
+    log.info("4. 退课")
     log.info("0. 退出")
     log.info("========================")
 
@@ -107,6 +114,10 @@ async def main() -> None:
                 await _run_menu_action("导出课表", handle_view_timetable(jws))
             elif choice == "2":
                 await _run_menu_action("教学评估", handle_teaching_evaluation(jws, settings))
+            elif choice == "3":
+                await _run_menu_action("选课", handle_course_selection(jws))
+            elif choice == "4":
+                await _run_menu_action("退课", handle_course_drop(jws))
             elif choice == "0":
                 return
             else:
