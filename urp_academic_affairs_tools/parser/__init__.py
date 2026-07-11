@@ -6,6 +6,7 @@ from .evaluation import (
     EvaluationOptions,
     EvaluationTask,
     TeachingEvaluationClient,
+    handle_teaching_evaluation,
 )
 from .timetable import TimetableEntry, parse_timetable
 
@@ -18,5 +19,6 @@ __all__ = [
     "EvaluationTask",
     "TeachingEvaluationClient",
     "TimetableEntry",
+    "handle_teaching_evaluation",
     "parse_timetable",
 ]
