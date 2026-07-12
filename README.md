@@ -11,7 +11,9 @@
 - Async login with captcha recognition and retry support
 - Timetable export to Excel
 - Teaching evaluation preview, selection, confirmation, and submission
-- Supports previewing the course list for booking courses and supports course cancellation.
+- Course list preview, course-number filtering, course selection
+- Continuous course-snatching mode
+
 
 ## Requirements
 
@@ -58,6 +60,9 @@ cp .env.example .env
 | `URP_EVALUATION_WAIT_SECONDS` | Wait time before evaluation submission | No | `120` |
 | `URP_EVALUATION_LIMIT` | Optional submission limit for evaluation | No | null                       |
 | `URP_EVALUATION_CONCURRENCY` | Evaluation open/submit concurrency | No | `3` |
+| `URP_COURSE_SNATCHING_ATTEMPTS` | Maximum snatching attempts; `0` means continuous mode | No | `0` |
+| `URP_COURSE_SNATCHING_CONCURRENCY` | Concurrent requests in snatching mode | No | `10` |
+| `URP_COURSE_SNATCHING_RETRY_INTERVAL` | Delay between snatching rounds in seconds | No | `0.2` |
 
 ## Usage
 
@@ -66,8 +71,12 @@ cp .env.example .env
 ```bash
 #Run with Poetry
 poetry run urp-tools
+#Run the PySide6 desktop interface
+poetry run urp-tools-gui
 #Run as a module
 poetry run python -m urp_academic_affairs_tools.main
+#Run the GUI as a module
+poetry run python -m urp_academic_affairs_tools.gui
 #Run directly from source
 python urp_academic_affairs_tools/main.py
 ```
@@ -76,7 +85,8 @@ python urp_academic_affairs_tools/main.py
 >
 > - Due to server limitations, teaching evaluations require a 120-second submission wait.
 >
-> - Successful course selection still depends on system availability. To ensure a higher success rate, please submit repeatedly until confirmed.
+> - Course selection displays a preview when the selection period is closed; the server still validates every submission.
+> - Continuous course snatching stops after a successful response or a non-retryable course error.
 
 
 

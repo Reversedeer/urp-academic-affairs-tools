@@ -14,11 +14,11 @@ import aioconsole
 
 if TYPE_CHECKING:
     if __package__ and __package__.startswith("urp_academic_affairs_tools"):
-        from ..client.session import AsyncJWSSession  # noqa: TID252
-        from ..config import Settings  # noqa: TID252
+        from ..client.session import AsyncJWSSession  # noqa: TID252  # type: ignore[no-redef]
+        from ..config import Settings  # noqa: TID252  # type: ignore[no-redef]
     else:
-        from client.session import AsyncJWSSession
-        from config import Settings
+        from client.session import AsyncJWSSession  # type: ignore[no-redef]
+        from config import Settings  # type: ignore[no-redef]
 
 if __package__ and __package__.startswith("urp_academic_affairs_tools"):
     from ..client import fetch_tasks  # noqa: TID252
@@ -39,7 +39,7 @@ SUBMIT_PATHS = (
     "/student/teachingEvaluation/teachingEvaluation/assessment",
     "/student/teachingEvaluation/assessment",
 )
-CONFIRM_PHRASE = "我确认提交评教不可撤销"
+CONFIRM_PHRASE = "yes"
 DEFAULT_COMMENT = "老师教学认真课程收获较大"
 HTTP_STATUS_NOT_FOUND = 404
 

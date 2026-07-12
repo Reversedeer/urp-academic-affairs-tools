@@ -25,6 +25,7 @@ from .captcha import (
 )
 from .errors import (
     AuthError,
+    ConcurrentSessionExpiredError,
     InvalidCredentialsError,
     ServiceError,
     SessionExpiredError,
@@ -119,6 +120,7 @@ class AsyncJWSSession:
         options: SessionOptions | None = None,
         retry: RetryPolicy | None = None,
         captcha_solver: CaptchaSolver | None = None,
+        cookie_jar: aiohttp.CookieJar | None = None,
     ) -> None:
         normalized_base_url = base_url.rstrip("/")
         if not normalized_base_url.startswith(("http://", "https://")):
@@ -146,11 +148,29 @@ class AsyncJWSSession:
         self._credentials: tuple[str, str] | None = None
         self._captcha_solver = captcha_solver
         self._captcha_recognizer: CaptchaRecognizer | None = None
+        self._login_lock = asyncio.Lock()
+        self._cookie_jar = cookie_jar
+        self._on_reauthenticated: Callable[[], None] | None = None
+        self._on_session_expired: Callable[[str], None] | None = None
 
     @property
     def started(self) -> bool:
         """会话是否已创建且尚未关闭。"""
         return self._session is not None and not self._session.closed
+
+    def set_reauthentication_callback(
+        self,
+        callback: Callable[[], None] | None,
+    ) -> None:
+        """设置会话自动恢复成功时的通知回调。"""
+        self._on_reauthenticated = callback
+
+    def set_session_expired_callback(
+        self,
+        callback: Callable[[str], None] | None,
+    ) -> None:
+        """设置检测到服务端会话失效时的通知回调。"""
+        self._on_session_expired = callback
 
     async def start(self) -> None:
         """创建底层 HTTP 会话；重复调用不会创建多个连接池。"""
@@ -168,6 +188,7 @@ class AsyncJWSSession:
         self._session = aiohttp.ClientSession(
             timeout=timeout,
             connector=connector,
+            cookie_jar=self._cookie_jar,
             headers=self.headers,
             raise_for_status=False,
         )
@@ -224,6 +245,20 @@ class AsyncJWSSession:
     def _is_login_redirect(location: str | None) -> bool:
         lowered = (location or "").lower()
         return "gotologin" in lowered or "/login" in lowered
+
+    @staticmethod
+    def _session_expired_error(*values: str) -> SessionExpiredError:
+        error_code = extract_error_code(*values)
+        if error_code == "concurrentSessionExpired":
+            return ConcurrentSessionExpiredError()
+        return SessionExpiredError(
+            "request was redirected to the login page",
+            error_code=error_code,
+        )
+
+    def _notify_session_expired(self, error: SessionExpiredError) -> None:
+        if self._on_session_expired is not None:
+            self._on_session_expired(error.error_code)
 
     def _build_url(self, path: str) -> str:
         if path.startswith(("http://", "https://")):
@@ -394,11 +429,15 @@ class AsyncJWSSession:
             msg = "username and password cannot be empty"
             raise AuthError(msg)
 
+        async with self._login_lock:
+            if self._credentials == (username, password) and await self.is_logged_in():
+                return
+            await self._login_until_success(username, password)
+
+    async def _login_until_success(self, username: str, password: str) -> None:
         last_error: Exception | None = None
         attempt = 1
-        while (
-            self.options.login_attempts == 0 or attempt <= self.options.login_attempts
-        ):
+        while self.options.login_attempts == 0 or attempt <= self.options.login_attempts:
             max_attempts = (
                 "∞"
                 if self.options.login_attempts == 0
@@ -431,7 +470,13 @@ class AsyncJWSSession:
         if self._credentials is None:
             msg = "session expired and no saved credentials are available"
             raise SessionExpiredError(msg)
-        await self.login(*self._credentials)
+        async with self._login_lock:
+            if await self.is_logged_in():
+                return
+            username, password = self._credentials
+            await self._login_until_success(username, password)
+            if self._on_reauthenticated is not None:
+                self._on_reauthenticated()
 
     async def _ensure_login(self) -> None:
         if await self.is_logged_in():
@@ -465,14 +510,28 @@ class AsyncJWSSession:
             max_redirects=self.options.max_redirects,
         ) as response:
             text = await response.text(errors="ignore")
+            response_url = str(response.url)
+            redirect_locations = tuple(
+                item.headers.get("Location", "") for item in response.history
+            )
             if response.status in HTTP_REDIRECT_STATUSES and self._is_login_redirect(
                 response.headers.get("Location"),
             ):
-                msg = "request was redirected to the login page"
-                raise SessionExpiredError(msg)
+                error = self._session_expired_error(
+                    response.headers.get("Location", ""),
+                    response_url,
+                    *redirect_locations,
+                )
+                self._notify_session_expired(error)
+                raise error
             if self.check_login_page(text):
-                msg = "request returned the login page"
-                raise SessionExpiredError(msg)
+                error = self._session_expired_error(
+                    response_url,
+                    *redirect_locations,
+                    text,
+                )
+                self._notify_session_expired(error)
+                raise error
             if response.status in RETRYABLE_STATUS_CODES:
                 msg = f"service returned retryable status {response.status}"
                 raise ServiceError(

@@ -1,6 +1,6 @@
 [project]
 name = "urp-tools"
-version = "0.3.1"
+version = "0.3.2"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { file = "LICENSE" }
@@ -14,10 +14,12 @@ dependencies = [
     "aioconsole (>=0.8.2,<0.9.0)",
     "pillow (==9.5.0)",
     "openpyxl (>=3.1.5,<4.0.0)",
+    "PySide6 (>=6.8.0,<7.0.0)",
 ]
 
 [project.scripts]
 urp-tools = "urp_academic_affairs_tools.main:run"
+urp-tools-gui = "urp_academic_affairs_tools.gui:run_gui"
 
 [tool.poetry]
 packages = [

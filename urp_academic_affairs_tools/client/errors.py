@@ -26,3 +26,17 @@ class ServiceError(Exception):
 
 class SessionExpiredError(Exception):
     """请求被重定向至登录页。"""
+
+    def __init__(self, message: str, *, error_code: str = "") -> None:
+        super().__init__(message)
+        self.error_code = error_code
+
+
+class ConcurrentSessionExpiredError(SessionExpiredError):
+    """账号在其他位置登录，导致当前服务端会话失效。"""
+
+    def __init__(self) -> None:
+        super().__init__(
+            "account was logged in elsewhere; the current session expired",
+            error_code="concurrentSessionExpired",
+        )
