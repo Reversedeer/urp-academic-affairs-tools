@@ -24,6 +24,7 @@ if __package__:
     from .export import export_timetable_excel
     from .parser.evaluation import handle_teaching_evaluation
     from .parser.timetable import parse_timetable
+    from .score_query import handle_score_query
 else:
     from client import (  # type: ignore[no-redef]
         AsyncJWSSession,
@@ -39,6 +40,7 @@ else:
     from export import export_timetable_excel  # type: ignore[no-redef]
     from parser.evaluation import handle_teaching_evaluation  # type: ignore[no-redef]
     from parser.timetable import parse_timetable  # type: ignore[no-redef]
+    from score_query import handle_score_query  # type: ignore[no-redef]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -55,6 +57,7 @@ def menu() -> None:
     log.info("2. 教学评估")
     log.info("3. 选课")
     log.info("4. 退课")
+    log.info("5. 成绩查询")
     log.info("0. 退出")
     log.info("========================")
 
@@ -115,9 +118,14 @@ async def main() -> None:
             elif choice == "2":
                 await _run_menu_action("教学评估", handle_teaching_evaluation(jws, settings))
             elif choice == "3":
-                await _run_menu_action("选课", handle_course_selection(jws))
+                await _run_menu_action(
+                    "选课",
+                    handle_course_selection(jws, settings),
+                )
             elif choice == "4":
                 await _run_menu_action("退课", handle_course_drop(jws))
+            elif choice == "5":
+                await _run_menu_action("成绩查询", handle_score_query(jws))
             elif choice == "0":
                 return
             else:

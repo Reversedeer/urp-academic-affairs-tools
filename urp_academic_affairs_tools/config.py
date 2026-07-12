@@ -26,6 +26,9 @@ class Settings:
     evaluation_wait_seconds: float = 120.0
     evaluation_limit: int | None = None
     evaluation_concurrency: int = 3
+    course_snatching_attempts: int = 0
+    course_snatching_concurrency: int = 10
+    course_snatching_retry_interval: float = 0.2
 
     def __post_init__(self) -> None:
         if not self.base_url.startswith(("http://", "https://")):
@@ -45,6 +48,15 @@ class Settings:
             raise ValueError(msg)
         if self.evaluation_concurrency < 1:
             msg = "URP_EVALUATION_CONCURRENCY 必须大于等于 1"
+            raise ValueError(msg)
+        if self.course_snatching_attempts < 0:
+            msg = "URP_COURSE_SNATCHING_ATTEMPTS 不能为负数"
+            raise ValueError(msg)
+        if self.course_snatching_concurrency < 1:
+            msg = "URP_COURSE_SNATCHING_CONCURRENCY 必须大于等于 1"
+            raise ValueError(msg)
+        if self.course_snatching_retry_interval < 0:
+            msg = "URP_COURSE_SNATCHING_RETRY_INTERVAL 不能为负数"
             raise ValueError(msg)
 
     def require_credentials(self) -> tuple[str, str]:
@@ -104,6 +116,20 @@ def _parse_optional_positive_int(value: str | None, *, name: str) -> int | None:
     return parsed
 
 
+def _parse_nonnegative_int(value: str | None, *, name: str) -> int:
+    if value is None or value.strip() == "":
+        return 0
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        msg = f"{name} 必须是非负整数"
+        raise ValueError(msg) from error
+    if parsed < 0:
+        msg = f"{name} 必须是非负整数"
+        raise ValueError(msg)
+    return parsed
+
+
 def load_settings(
     env: Mapping[str, str] | None = None,
     *,
@@ -134,6 +160,17 @@ def load_settings(
         values.get("URP_EVALUATION_CONCURRENCY"),
         name="URP_EVALUATION_CONCURRENCY",
     )
+    course_snatching_attempts = _parse_nonnegative_int(
+        values.get("URP_COURSE_SNATCHING_ATTEMPTS"),
+        name="URP_COURSE_SNATCHING_ATTEMPTS",
+    )
+    course_snatching_concurrency = _parse_optional_positive_int(
+        values.get("URP_COURSE_SNATCHING_CONCURRENCY"),
+        name="URP_COURSE_SNATCHING_CONCURRENCY",
+    )
+    course_snatching_retry_interval = float(
+        values.get("URP_COURSE_SNATCHING_RETRY_INTERVAL", "0.2"),
+    )
 
     return Settings(
         base_url=base_url,
@@ -144,6 +181,9 @@ def load_settings(
         evaluation_wait_seconds=wait_seconds,
         evaluation_limit=evaluation_limit,
         evaluation_concurrency=evaluation_concurrency or 3,
+        course_snatching_attempts=course_snatching_attempts,
+        course_snatching_concurrency=course_snatching_concurrency or 10,
+        course_snatching_retry_interval=course_snatching_retry_interval,
     )
 
 

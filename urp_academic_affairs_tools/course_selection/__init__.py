@@ -5,6 +5,7 @@ from .course_selection import (
     CourseSelectionOptions,
     CourseSelectionQuery,
     CourseSelectionSubmitResult,
+    CourseSnatchingOptions,
     CourseSelectLink,
     CourseSelectPageInfo,
     QuitCourseCandidate,
@@ -15,6 +16,7 @@ from .course_selection import (
     parse_course_candidates,
     parse_course_select_page,
     parse_selected_courses,
+    filter_course_candidates,
 )
 
 __all__ = [
@@ -26,9 +28,11 @@ __all__ = [
     "CourseSelectionOptions",
     "CourseSelectionQuery",
     "CourseSelectionSubmitResult",
+    "CourseSnatchingOptions",
     "QuitCourseCandidate",
     "build_course_selection_form",
     "extract_course_select_token",
+    "filter_course_candidates",
     "handle_course_drop",
     "handle_course_selection",
     "parse_course_candidates",
