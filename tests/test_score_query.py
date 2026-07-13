@@ -1,4 +1,4 @@
-"""成绩查询回调数据解析测试。"""
+"""成绩查询回调数据解析测试"""
 
 from __future__ import annotations
 
@@ -38,7 +38,10 @@ class ScoreQueryTests(unittest.TestCase):
                     "zxjxjhh": "2024-2025-1-1",
                     "cjList": [
                         {
-                            "id": {"courseNumber": "Q18402", "coureSequenceNumber": "01"},
+                            "id": {
+                                "courseNumber": "Q18402",
+                                "coureSequenceNumber": "01",
+                            },
                             "academicYearCode": "2024-2025",
                             "termName": "秋",
                             "courseName": "计算科学导论",
@@ -83,9 +86,9 @@ class ScoreQueryTests(unittest.TestCase):
             {
                 "list": [
                     {
-                        "academicYearCode": "2026-2027",
-                        "termCode": "1",
-                        "termName": "秋",
+                        "id": {
+                            "executiveEducationPlanNumber": "2026-2027-1-1",
+                        },
                         "courseName": "Linux操作系统",
                         "credit": "3.5",
                         "coursePropertyName": "必修",
@@ -107,6 +110,24 @@ class ScoreQueryTests(unittest.TestCase):
         self.assertEqual(record.minimum_score, "56")
         self.assertEqual(record.average_score, "82.4")
         self.assertEqual(record.rank, "6")
+
+    def test_fills_this_term_from_response_context_when_rows_omit_term(self) -> None:
+        data = [
+            {
+                "list": [
+                    {
+                        "id": {
+                            "executiveEducationPlanNumber": "2025-2026-2-1",
+                        },
+                        "courseName": "数据库原理",
+                        "courseScore": "92",
+                    },
+                ],
+            },
+        ]
+        record = _parse_this_term_scores(data)[0]
+        self.assertEqual(record.term_key, "2025-2026-2-1")
+        self.assertEqual(record.academic_term, "2025-2026学年春")
 
     def test_keeps_grade_point_empty_when_this_term_score_is_missing(self) -> None:
         data = [{"list": [{"courseScore": None, "gradePoint": "4.0"}]}]
