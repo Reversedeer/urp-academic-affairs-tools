@@ -1,4 +1,4 @@
-"""验证码图片校验与 OCR 识别。"""
+"""验证码图片校验与 OCR 识别"""
 
 import logging
 import re
@@ -25,7 +25,7 @@ CaptchaSolver = Callable[[bytes], str]
 
 
 def verify_image_bytes(image_bytes: bytes) -> bool:
-    """验证字节内容是否为 Pillow 可读取的完整图片。"""
+    """验证字节内容是否为 Pillow 可读取的完整图片"""
     try:
         with Image.open(BytesIO(image_bytes)) as image:
             image.verify()
@@ -35,7 +35,7 @@ def verify_image_bytes(image_bytes: bytes) -> bool:
 
 
 class CaptchaRecognizer:
-    """组合整图、分割字符和动画帧结果识别四位验证码。"""
+    """组合整图、分割字符和动画帧结果识别四位验证码"""
 
     def __init__(self, classifier: OCRClassifier | None = None) -> None:
         self._classifier = classifier

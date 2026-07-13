@@ -1,4 +1,4 @@
-"""教学评估任务解析、交互与提交。"""
+"""教学评估任务解析"""
 
 from __future__ import annotations
 
@@ -13,22 +13,12 @@ from typing import TYPE_CHECKING
 import aioconsole
 
 if TYPE_CHECKING:
-    if __package__ and __package__.startswith("urp_academic_affairs_tools"):
-        from ..client.session import AsyncJWSSession  # noqa: TID252  # type: ignore[no-redef]
-        from ..config import Settings  # noqa: TID252  # type: ignore[no-redef]
-    else:
-        from client.session import AsyncJWSSession  # type: ignore[no-redef]
-        from config import Settings  # type: ignore[no-redef]
+    from urp_academic_affairs_tools.client.session import AsyncJWSSession
+    from urp_academic_affairs_tools.config import Settings
 
-if __package__ and __package__.startswith("urp_academic_affairs_tools"):
-    from ..client import fetch_tasks  # noqa: TID252
-    from ..client.auth import extract_token_value  # noqa: TID252
-    from ..client.errors import AuthError, ServiceError  # noqa: TID252
-else:
-    from client import fetch_tasks  # type: ignore[no-redef]
-    from client.errors import AuthError  # type: ignore[no-redef]
-    from client.auth import extract_token_value  # type: ignore[no-redef]
-    from client.errors import ServiceError  # type: ignore[no-redef]
+from urp_academic_affairs_tools.client import fetch_tasks
+from urp_academic_affairs_tools.client.auth import extract_token_value
+from urp_academic_affairs_tools.client.errors import AuthError, ServiceError
 
 EVALUATION_INDEX_PATH = "/student/teachingEvaluation/evaluation/index"
 EVALUATION_PAGE_PATHS = (
@@ -92,15 +82,15 @@ log = logging.getLogger(__name__)
 
 
 class EvaluationError(Exception):
-    """评教数据无效或评教流程无法继续。"""
+    """评教数据无效或评教流程无法继续"""
 
 
 class EvaluationCancelledError(EvaluationError):
-    """用户未确认提交。"""
+    """用户未确认提交"""
 
 
 class EvaluationBatchError(EvaluationError):
-    """部分课程评教提交失败。"""
+    """部分课程评教提交失败"""
 
     def __init__(self, results: Sequence[EvaluationSubmitResult]) -> None:
         self.results = tuple(results)
@@ -110,7 +100,7 @@ class EvaluationBatchError(EvaluationError):
 
 
 class _EvaluationFormParser(HTMLParser):
-    """提取评教页面中提交所需的表单字段。"""
+    """提取评教页面中提交所需的表单字段"""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
@@ -158,7 +148,7 @@ class _EvaluationFormParser(HTMLParser):
 
 @dataclass(frozen=True, slots=True)
 class EvaluationForm:
-    """从评教页面解析出来的可提交表单。"""
+    """从评教页面解析出来的可提交表单"""
 
     fields: Mapping[str, str]
     radio_groups: Mapping[str, Sequence[str]]
@@ -343,7 +333,7 @@ ConfirmationCallback = Callable[[Sequence[EvaluationTask]], Awaitable[bool]]
 
 
 class TeachingEvaluationClient:
-    """执行正式教学评估提交。"""
+    """执行正式教学评估提交"""
 
     def __init__(
         self,
@@ -361,7 +351,7 @@ class TeachingEvaluationClient:
 
     @staticmethod
     def extract_token(html: str) -> str:
-        """从评教页面提取 tokenValue。"""
+        """从评教页面提取 tokenValue"""
         try:
             return extract_token_value(html)
         except AuthError as error:
@@ -387,7 +377,7 @@ class TeachingEvaluationClient:
         token: str,
         page_html: str = "",
     ) -> dict[str, str]:
-        """构造评教提交表单。"""
+        """构造评教提交表单"""
         form = EvaluationForm.from_html(page_html)
         payload = form.build_payload(
             choice=self.default_choice,
@@ -437,7 +427,7 @@ class TeachingEvaluationClient:
                 return result
             last_error = error
             log.warning("请求路径不存在，尝试备用路径：%s", path)
-        msg = f"所有候选路径都返回 404：{', '.join(paths)}"
+        msg = f"所有候选路径都返回 404: {', '.join(paths)}"
         raise EvaluationError(msg) from last_error
 
     @staticmethod
@@ -577,7 +567,7 @@ class TeachingEvaluationClient:
         data: Mapping[str, object],
         selected_tasks: Sequence[EvaluationTask] | None = None,
     ) -> int:
-        """提交所有选中的未评教任务，并返回成功提交数量。"""
+        """提交所有选中的未评教任务，并返回成功提交数量"""
         pending = self.pending_tasks(data)
         log.info("共有 %d 门课程待评教", len(pending))
         if not pending:

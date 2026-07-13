@@ -1,4 +1,4 @@
-"""选课页面解析。"""
+"""选课页面解析"""
 
 from __future__ import annotations
 
@@ -17,44 +17,29 @@ from urllib.parse import parse_qs, urlparse
 
 import aioconsole
 
-if __package__ and __package__.startswith("urp_academic_affairs_tools"):
-    from ..client import ServiceError  # noqa: TID252
-    from ..client.api import (  # noqa: TID252
-        delete_course_selection,
-        fetch_course_select_index,
-        fetch_course_select_list,
-        fetch_course_select_page,
-        fetch_course_select_result_index,
-        get_this_semester_timetable,
-        submit_course_selection,
-    )
-else:
-    from client import ServiceError  # type: ignore[no-redef]
-    from client.api import (  # type: ignore[no-redef]
-        delete_course_selection,
-        fetch_course_select_index,
-        fetch_course_select_list,
-        fetch_course_select_page,
-        fetch_course_select_result_index,
-        get_this_semester_timetable,
-        submit_course_selection,
-    )
+from urp_academic_affairs_tools.client import ServiceError
+from urp_academic_affairs_tools.client.api import (
+    delete_course_selection,
+    fetch_course_select_index,
+    fetch_course_select_list,
+    fetch_course_select_page,
+    fetch_course_select_result_index,
+    get_this_semester_timetable,
+    submit_course_selection,
+)
 
 if TYPE_CHECKING:
-    if __package__ and __package__.startswith("urp_academic_affairs_tools"):
-        from ..client import AsyncJWSSession  # noqa: TID252
-        from ..config import Settings  # noqa: TID252
-    else:
-        from client import AsyncJWSSession  # type: ignore[no-redef]
-        from config import Settings  # type: ignore[no-redef]
+    from urp_academic_affairs_tools.client import AsyncJWSSession
+    from urp_academic_affairs_tools.config import Settings
 
 log = logging.getLogger(__name__)
 CONFIRM_SUBMIT_PHRASE = "yes"
+COURSE_SELECTION_CLOSED_MESSAGE = "对不起，当前选课阶段已过截止时间！"
 
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectLink:
-    """选课页面中的入口链接。"""
+    """选课页面中的入口链接"""
 
     path: str
     category: str
@@ -62,7 +47,7 @@ class CourseSelectLink:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectPageInfo:
-    """选课页面暴露的只读协议信息。"""
+    """选课页面暴露的只读协议信息"""
 
     links: list[CourseSelectLink]
     endpoints: list[str]
@@ -76,7 +61,7 @@ class CourseSelectPageInfo:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectionCandidate:
-    """课程列表中的一个可选教学班。"""
+    """课程列表中的一个可选教学班"""
 
     course_number: str
     sequence_number: str
@@ -103,7 +88,7 @@ class CourseSelectionCandidate:
 
 @dataclass(frozen=True, slots=True)
 class QuitCourseCandidate:
-    """已选课程中的一个可退课程。"""
+    """已选课程中的一个可退课程"""
 
     program_plan_number: str
     course_number: str
@@ -126,7 +111,7 @@ class QuitCourseCandidate:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectionFormOptions:
-    """构造选课提交表单所需的上下文。"""
+    """构造选课提交表单所需的上下文"""
 
     deal_type: str
     program_plan_number: str
@@ -137,7 +122,7 @@ class CourseSelectionFormOptions:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectionOptions:
-    """选课提交策略。"""
+    """选课提交策略"""
 
     attempts: int = 3
     concurrency: int = 2
@@ -154,7 +139,7 @@ class CourseSelectionOptions:
 
 @dataclass(frozen=True, slots=True)
 class CourseSnatchingOptions:
-    """持续抢课策略；``attempts=0`` 表示持续运行直到成功或手动停止。"""
+    """持续抢课策略；``attempts=0`` 表示持续运行直到成功或手动停止"""
 
     attempts: int = 0
     concurrency: int = 10
@@ -171,7 +156,7 @@ class CourseSnatchingOptions:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectionQuery:
-    """课程列表查询参数。"""
+    """课程列表查询参数"""
 
     category: str
     params: dict[str, str]
@@ -181,7 +166,7 @@ class CourseSelectionQuery:
 
 @dataclass(frozen=True, slots=True)
 class CourseSelectionSubmitResult:
-    """一次选课提交结果。"""
+    """选课提交结果"""
 
     succeeded: bool
     result: str
@@ -193,10 +178,10 @@ def filter_course_candidates(
     candidates: Sequence[CourseSelectionCandidate],
     course_code: str,
 ) -> list[CourseSelectionCandidate]:
-    """按课程号或课程号_课序号筛选课程。"""
+    """按课程号或课程号_课序号筛选课程"""
     normalized = course_code.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]+(?:_[A-Z0-9]+)?", normalized):
-        msg = "课程号格式不合法，应为课程号或课程号_课序号"
+        msg = "课程号格式不合法, 应为课程号或课程号_课序号"
         raise ValueError(msg)
     if "_" in normalized:
         return [course for course in candidates if course.course_code == normalized]
@@ -284,7 +269,7 @@ def _classify_course_link(path: str) -> str:
 
 
 def parse_course_select_page(html: str) -> CourseSelectPageInfo:
-    """解析选课相关链接、接口和表单字段。"""
+    """解析选课相关链接、接口和表单字段"""
     normalized_html = unescape(html).replace(r"\/", "/")
     raw_paths = sorted(
         {
@@ -333,7 +318,7 @@ def parse_course_select_page(html: str) -> CourseSelectPageInfo:
 
 
 def encode_course_names(candidates: list[CourseSelectionCandidate]) -> str:
-    """按页面 JS 的 charCodeAt 逻辑编码 kcms 字段。"""
+    """编码 kcms 字段"""
     text = ",".join(candidate.display_name for candidate in candidates)
     return "".join(f"{ord(char)}," for char in text)
 
@@ -343,7 +328,7 @@ def build_course_selection_form(
     options: CourseSelectionFormOptions,
     candidates: list[CourseSelectionCandidate],
 ) -> dict[str, str]:
-    """构造 checkInputCodeAndSubmit 接口需要的表单。"""
+    """构造 checkInputCodeAndSubmit 接口需要的表单"""
     return {
         "dealType": options.deal_type,
         "kcIds": ",".join(candidate.selection_id for candidate in candidates),
@@ -356,12 +341,12 @@ def build_course_selection_form(
 
 
 def extract_course_select_token(html: str) -> str:
-    """提取选课首页的 tokenValue。"""
+    """提取选课首页的 tokenValue"""
     match = re.search(r"""id=["']tokenValue["'][^>]*value=["']([^"']+)["']""", html)
     if match is None:
         normalized = re.sub(r"\s+", "", unescape(html)).lower()
         if _is_course_selection_closed(html):
-            msg = "当前未开放选课，服务端未返回提交 tokenValue；当前仅支持预览"
+            msg = COURSE_SELECTION_CLOSED_MESSAGE
         elif "gotologin" in normalized or "/login" in normalized:
             msg = "选课提交页面已跳转到登录页，会话可能已失效"
         else:
@@ -371,25 +356,80 @@ def extract_course_select_token(html: str) -> str:
 
 
 def parse_course_candidates(html: str) -> list[CourseSelectionCandidate]:
-    """从 courseList 响应中提取课程候选项。"""
-    normalized = unescape(html).replace(r"\"", '"')
+    """从 courseList 响应中提取可选课程候选项"""
+    raw_response = unescape(html)
+    response = _parse_course_list_response(raw_response)
+    if response is not None:
+        raw_objects = _available_course_objects(response)
+    else:
+        normalized = raw_response.replace(r"\"", '"')
+        raw_objects = []
+        for raw_object in _iter_json_objects_containing(
+            normalized, '"courseNum"'
+        ) + _iter_json_objects_containing(normalized, '"courseName"'):
+            try:
+                parsed_object = json.loads(raw_object)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed_object, dict):
+                raw_objects.append(parsed_object)
+
     candidates: dict[str, CourseSelectionCandidate] = {}
-    for raw_object in _iter_json_objects_containing(
-        normalized,
-        '"courseNum"',
-    ) + _iter_json_objects_containing(normalized, '"courseName"'):
-        try:
-            data = json.loads(raw_object)
-        except json.JSONDecodeError:
-            continue
+    for data in raw_objects:
         candidate = _candidate_from_data(data)
         if candidate is not None:
             candidates[candidate.selection_id] = candidate
     return list(candidates.values())
 
 
+def _parse_course_list_response(html: str) -> dict[str, Any] | None:
+    try:
+        data = json.loads(html)
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _available_course_objects(data: Mapping[str, object]) -> list[dict[str, Any]]:
+    """提取教务系统返回的可选课程列表"""
+    objects: list[dict[str, Any]] = []
+    found_available_list = False
+    for key, value in data.items():
+        normalized_key = str(key).lower()
+        if not normalized_key.startswith("rw") or "list" not in normalized_key:
+            continue
+        found_available_list = True
+        parsed_value = value
+        if isinstance(parsed_value, str):
+            try:
+                parsed_value = json.loads(parsed_value)
+            except json.JSONDecodeError:
+                continue
+        if not isinstance(parsed_value, list):
+            continue
+        objects.extend(item for item in parsed_value if isinstance(item, dict))
+
+    if found_available_list:
+        return objects
+    return _json_objects_from_text(data.get("courseList"))
+
+
+def _json_objects_from_text(value: object) -> list[dict[str, Any]]:
+    if not isinstance(value, str):
+        return []
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError:
+        return []
+    if isinstance(parsed, list):
+        return [item for item in parsed if isinstance(item, dict)]
+    if isinstance(parsed, dict):
+        return [parsed]
+    return []
+
+
 def parse_selected_courses(data: Mapping[str, object]) -> list[QuitCourseCandidate]:
-    """从选课结果/本学期课表回调数据提取已选课程。"""
+    """从选课结果/本学期课表回调数据提取已选课程"""
     candidates: list[QuitCourseCandidate] = []
     for course in _iter_selected_course_mappings(data):
         candidate = _selected_course_candidate_from_data(course)
@@ -407,7 +447,7 @@ def parse_selected_courses(data: Mapping[str, object]) -> list[QuitCourseCandida
 
 
 class CourseSelectionClient:
-    """选课查询与有限并发提交。"""
+    """选课查询与并发提交"""
 
     DEFAULT_QUERIES: ClassVar[dict[str, CourseSelectionQuery]] = {
         "department": CourseSelectionQuery(
@@ -501,20 +541,32 @@ class CourseSelectionClient:
         query: CourseSelectionQuery,
     ) -> list[CourseSelectionCandidate]:
         html = await fetch_course_select_list(jws, query.category, query.params)
-        return parse_course_candidates(html)
+        candidates = parse_course_candidates(html)
+        if not candidates:
+            raise ServiceError(COURSE_SELECTION_CLOSED_MESSAGE)
+        return candidates
 
     async def fetch_selected_courses(
         self,
         jws: AsyncJWSSession,
     ) -> list[QuitCourseCandidate]:
-        data = await self.fetch_selection_data(jws)
-        return parse_selected_courses(data)
+        _, courses = await self.fetch_selected_courses_with_term(jws)
+        return courses
+
+    async def fetch_selected_courses_with_term(
+        self,
+        jws: AsyncJWSSession,
+    ) -> tuple[str, list[QuitCourseCandidate]]:
+        """读取退课数据"""
+        data = await get_this_semester_timetable(jws)
+        term = _extract_context_value(data, "executiveEducationPlanNumber")
+        return term, parse_selected_courses(data)
 
     async def fetch_selection_data(
         self,
         jws: AsyncJWSSession,
     ) -> dict[str, Any]:
-        """获取选课结果回调数据，包含培养方案和学期上下文。"""
+        """获取选课结果回调数据，包含培养方案和学期上下文"""
         await fetch_course_select_result_index(jws)
         return await get_this_semester_timetable(jws)
 
@@ -556,7 +608,7 @@ class CourseSelectionClient:
         options: CourseSnatchingOptions | None = None,
         token_value: str | None = None,
     ) -> CourseSelectionSubmitResult:
-        """并发持续提交一门课程，成功后取消其余提交任务。"""
+        """并发持续提交一门课程，成功后取消其余提交任务"""
         strategy = options or CourseSnatchingOptions()
         stop_event = asyncio.Event()
         result: CourseSelectionSubmitResult | None = None
@@ -683,10 +735,6 @@ async def handle_course_selection(  # noqa: C901, PLR0912, PLR0915
         program_plan_number=program_plan_number,
     )
     courses = await client.fetch_candidates(jws, query)
-    if not courses:
-        log.warning("没有查询到可选课程")
-        return
-
     selected_codes = {course.course_code for course in selected_courses}
     courses = [course for course in courses if course.course_code not in selected_codes]
     if not courses:
@@ -695,7 +743,7 @@ async def handle_course_selection(  # noqa: C901, PLR0912, PLR0915
 
     target_code = (
         await aioconsole.ainput(
-            "请输入目标课程号或课程号_课序号，直接回车显示全部：",
+            "请输入目标课程号或课程号_课序号, 直接回车显示全部：",
         )
     ).strip()
     if target_code:
@@ -732,9 +780,7 @@ async def handle_course_selection(  # noqa: C901, PLR0912, PLR0915
             selected,
             options=CourseSnatchingOptions(
                 attempts=settings.course_snatching_attempts if settings else 0,
-                concurrency=(
-                    settings.course_snatching_concurrency if settings else 10
-                ),
+                concurrency=(settings.course_snatching_concurrency if settings else 10),
                 retry_interval=(
                     settings.course_snatching_retry_interval if settings else 0.2
                 ),
@@ -753,9 +799,7 @@ async def handle_course_selection(  # noqa: C901, PLR0912, PLR0915
         query,
         [selected],
         token_value=(
-            extract_course_select_token(index_html)
-            if not selection_closed
-            else None
+            extract_course_select_token(index_html) if not selection_closed else None
         ),
     )
     if not result.succeeded:

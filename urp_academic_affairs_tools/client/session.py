@@ -1,4 +1,4 @@
-"""异步教务系统会话、登录与请求重试。"""
+"""异步教务系统会话、登录与请求重试"""
 
 import asyncio
 import hashlib
@@ -13,7 +13,7 @@ from typing import Any, Generic, TypeVar, cast
 import aiohttp
 
 from .auth import (
-    BASE_URL,
+    classify_authentication_failure,
     extract_error_code,
     extract_token_value,
 )
@@ -24,8 +24,10 @@ from .captcha import (
     verify_image_bytes,
 )
 from .errors import (
+    AuthenticationFailure,
     AuthError,
     ConcurrentSessionExpiredError,
+    CsrfTokenExpiredError,
     InvalidCredentialsError,
     ServiceError,
     SessionExpiredError,
@@ -47,7 +49,7 @@ RequestParams = Mapping[str, str | int | float]
 
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
-    """普通请求的指数退避策略。"""
+    """普通请求的指数退避策略"""
 
     max_retry: int = 3
     base_sleep: float = 0.2
@@ -68,7 +70,7 @@ class RetryPolicy:
 
 @dataclass(frozen=True, slots=True)
 class SessionOptions:
-    """会话连接和登录配置。"""
+    """会话连接和登录配置"""
 
     timeout_total: float = 10.0
     timeout_connect: float = 3.0
@@ -111,11 +113,11 @@ class _AttemptResult(Generic[_T]):
 
 
 class AsyncJWSSession:
-    """维护教务系统 Cookie，并为请求提供自动重登和有限重试。"""
+    """维护教务系统 Cookie"""
 
     def __init__(
         self,
-        base_url: str = BASE_URL,
+        base_url: str,
         *,
         options: SessionOptions | None = None,
         retry: RetryPolicy | None = None,
@@ -151,29 +153,25 @@ class AsyncJWSSession:
         self._login_lock = asyncio.Lock()
         self._cookie_jar = cookie_jar
         self._on_reauthenticated: Callable[[], None] | None = None
-        self._on_session_expired: Callable[[str], None] | None = None
+        self._on_session_expired: Callable[[AuthenticationFailure], None] | None = None
 
     @property
     def started(self) -> bool:
-        """会话是否已创建且尚未关闭。"""
         return self._session is not None and not self._session.closed
 
     def set_reauthentication_callback(
         self,
         callback: Callable[[], None] | None,
     ) -> None:
-        """设置会话自动恢复成功时的通知回调。"""
         self._on_reauthenticated = callback
 
     def set_session_expired_callback(
         self,
-        callback: Callable[[str], None] | None,
+        callback: Callable[[AuthenticationFailure], None] | None,
     ) -> None:
-        """设置检测到服务端会话失效时的通知回调。"""
         self._on_session_expired = callback
 
     async def start(self) -> None:
-        """创建底层 HTTP 会话；重复调用不会创建多个连接池。"""
         if self.started:
             return
 
@@ -194,7 +192,6 @@ class AsyncJWSSession:
         )
 
     async def close(self) -> None:
-        """关闭连接池并清除内存中的登录凭据。"""
         session = self._session
         self._session = None
         self._credentials = None
@@ -221,7 +218,6 @@ class AsyncJWSSession:
 
     @staticmethod
     def _md5(text: str) -> str:
-        """按旧版教务系统协议计算密码摘要。"""
         return hashlib.md5(
             text.encode("utf-8"),
             usedforsecurity=False,
@@ -229,12 +225,10 @@ class AsyncJWSSession:
 
     @staticmethod
     def _extract_token(html: str) -> str:
-        """兼容原有私有接口。"""
         return extract_token_value(html)
 
     @staticmethod
     def check_login_page(text: str) -> bool:
-        """通过登录表单的稳定标记识别登录页。"""
         lowered = text.lower()
         has_login_form = (
             "tokenvalue" in lowered and "j_spring_security_check" in lowered
@@ -247,18 +241,24 @@ class AsyncJWSSession:
         return "gotologin" in lowered or "/login" in lowered
 
     @staticmethod
-    def _session_expired_error(*values: str) -> SessionExpiredError:
+    def _authentication_error(
+        reason: AuthenticationFailure,
+        *values: str,
+    ) -> SessionExpiredError:
         error_code = extract_error_code(*values)
-        if error_code == "concurrentSessionExpired":
+        if reason is AuthenticationFailure.CONCURRENT_SESSION_EXPIRED:
             return ConcurrentSessionExpiredError()
+        if reason is AuthenticationFailure.CSRF_TOKEN_EXPIRED:
+            return CsrfTokenExpiredError()
         return SessionExpiredError(
             "request was redirected to the login page",
+            reason=reason,
             error_code=error_code,
         )
 
     def _notify_session_expired(self, error: SessionExpiredError) -> None:
         if self._on_session_expired is not None:
-            self._on_session_expired(error.error_code)
+            self._on_session_expired(error.reason)
 
     def _build_url(self, path: str) -> str:
         if path.startswith(("http://", "https://")):
@@ -368,7 +368,7 @@ class AsyncJWSSession:
                 raise AuthError(msg)
 
     async def is_logged_in(self) -> bool:
-        """请求首页并判断服务器端会话是否仍然有效。"""
+        """请求首页并判断服务器端会话是否仍然有效"""
         session = self._require_session()
         async with session.get(
             self.index_url,
@@ -376,10 +376,31 @@ class AsyncJWSSession:
         ) as response:
             if response.status == HTTP_STATUS_OK:
                 text = await response.text(errors="ignore")
-                return not self.check_login_page(text)
+                if self.check_login_page(text):
+                    error = self._authentication_error(
+                        AuthenticationFailure.LOGIN_REDIRECT,
+                        str(response.url),
+                        text,
+                    )
+                    self._notify_session_expired(error)
+                    return False
+                return True
             await response.read()
             if response.status in HTTP_REDIRECT_STATUSES:
-                return not self._is_login_redirect(response.headers.get("Location"))
+                location = response.headers.get("Location", "")
+                if self._is_login_redirect(location):
+                    reason = (
+                        classify_authentication_failure(
+                            status=response.status,
+                            response_url=str(response.url),
+                            redirect_locations=(location,),
+                        )
+                        or AuthenticationFailure.LOGIN_REDIRECT
+                    )
+                    error = self._authentication_error(reason, location)
+                    self._notify_session_expired(error)
+                    return False
+                return True
             if response.status in {401, 403}:
                 return False
             if response.status >= 400:  # noqa: PLR2004
@@ -423,7 +444,7 @@ class AsyncJWSSession:
         return None
 
     async def login(self, username: str, password: str) -> None:
-        """登录教务系统，并在成功后保存凭据供会话过期时重登。"""
+        """登录教务系统"""
         self._require_session()
         if not username or not password:
             msg = "username and password cannot be empty"
@@ -437,7 +458,9 @@ class AsyncJWSSession:
     async def _login_until_success(self, username: str, password: str) -> None:
         last_error: Exception | None = None
         attempt = 1
-        while self.options.login_attempts == 0 or attempt <= self.options.login_attempts:
+        while (
+            self.options.login_attempts == 0 or attempt <= self.options.login_attempts
+        ):
             max_attempts = (
                 "∞"
                 if self.options.login_attempts == 0
@@ -466,12 +489,12 @@ class AsyncJWSSession:
         msg = f"login failed after {self.options.login_attempts} attempts"
         raise AuthError(msg) from last_error
 
-    async def _restore_login(self) -> None:
+    async def _restore_login(self, *, force: bool = False) -> None:
         if self._credentials is None:
             msg = "session expired and no saved credentials are available"
             raise SessionExpiredError(msg)
         async with self._login_lock:
-            if await self.is_logged_in():
+            if not force and await self.is_logged_in():
                 return
             username, password = self._credentials
             await self._login_until_success(username, password)
@@ -485,7 +508,7 @@ class AsyncJWSSession:
         await self._restore_login()
 
     async def parse_captcha(self, image_bytes: bytes) -> str:
-        """在线程池中执行 CPU 密集型验证码识别。"""
+        """在线程池中执行验证码识别"""
         solver = self._captcha_solver
         if solver is None:
             if self._captcha_recognizer is None:
@@ -514,18 +537,27 @@ class AsyncJWSSession:
             redirect_locations = tuple(
                 item.headers.get("Location", "") for item in response.history
             )
-            if response.status in HTTP_REDIRECT_STATUSES and self._is_login_redirect(
-                response.headers.get("Location"),
-            ):
-                error = self._session_expired_error(
+            authentication_failure = classify_authentication_failure(
+                status=response.status,
+                response_url=response_url,
+                redirect_locations=(
                     response.headers.get("Location", ""),
+                    *redirect_locations,
+                ),
+                text=text,
+            )
+            if authentication_failure is not None:
+                error = self._authentication_error(
+                    authentication_failure,
                     response_url,
                     *redirect_locations,
+                    text,
                 )
                 self._notify_session_expired(error)
                 raise error
             if self.check_login_page(text):
-                error = self._session_expired_error(
+                error = self._authentication_error(
+                    AuthenticationFailure.LOGIN_REDIRECT,
                     response_url,
                     *redirect_locations,
                     text,
@@ -564,7 +596,7 @@ class AsyncJWSSession:
     def _is_retryable_error(error: Exception) -> bool:
         if isinstance(error, ServiceError):
             return error.retryable
-        return isinstance(error, (aiohttp.ClientError, asyncio.TimeoutError))
+        return isinstance(error, aiohttp.ClientError | asyncio.TimeoutError)
 
     async def _request_with_retry(
         self,
@@ -586,10 +618,12 @@ class AsyncJWSSession:
 
             error = result.error
             if isinstance(error, SessionExpiredError):
-                if not is_idempotent or reauthenticated:
+                if reauthenticated:
                     raise error
-                log.info("请求发现会话过期，正在重新登录")
-                await self._restore_login()
+                log.info("认证中间件检测到 %s, 正在重新登录", error.reason.value)
+                await self._restore_login(
+                    force=error.reason is AuthenticationFailure.CSRF_TOKEN_EXPIRED,
+                )
                 reauthenticated = True
                 continue
 
@@ -658,7 +692,7 @@ class AsyncJWSSession:
         allow_redirects: bool = True,
         retry: RetryPolicy | None = None,
     ) -> str:
-        """请求文本；仅对幂等方法执行网络和服务端错误重试。"""
+        """请求文本"""
         spec = self._make_request_spec(
             method,
             path,
@@ -686,7 +720,7 @@ class AsyncJWSSession:
         allow_redirects: bool = True,
         retry: RetryPolicy | None = None,
     ) -> dict[str, Any]:
-        """请求并解析 JSON 对象；无效 JSON 仅对幂等方法重试。"""
+        """请求并解析 JSON 对象"""
         spec = self._make_request_spec(
             method,
             path,

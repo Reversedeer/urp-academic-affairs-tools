@@ -1,5 +1,3 @@
-"""成绩查询功能。"""
-
 from .score_query import (
     ScoreQueryClient,
     ScoreRecord,

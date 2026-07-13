@@ -1,4 +1,4 @@
-"""教务系统业务接口。"""
+"""教务系统业务接口"""
 
 from typing import Any
 
@@ -31,12 +31,12 @@ async def fetch_tasks(jws: AsyncJWSSession) -> dict[str, Any]:
 
 
 async def fetch_course_select_index(jws: AsyncJWSSession) -> str:
-    """获取选课首页 HTML。"""
+    """获取选课首页 HTML"""
     return await jws.request_text("GET", COURSE_SELECT_INDEX_PATH)
 
 
 async def fetch_course_select_result_index(jws: AsyncJWSSession) -> str:
-    """获取选课结果页 HTML。"""
+    """获取选课结果页 HTML"""
     return await jws.request_text("GET", COURSE_SELECT_RESULT_INDEX_PATH)
 
 
@@ -44,7 +44,7 @@ async def fetch_course_select_page(
     jws: AsyncJWSSession,
     path: str,
 ) -> str:
-    """获取某个选课分类页 HTML。"""
+    """获取某个选课分类页 HTML"""
     return await jws.request_text("GET", path)
 
 
@@ -53,7 +53,7 @@ async def fetch_course_select_list(
     category: str,
     params: dict[str, str],
 ) -> str:
-    """获取某个选课分类的课程列表 HTML。"""
+    """获取某个选课分类的课程列表 HTML"""
     try:
         path = COURSE_SELECT_LIST_PATHS[category]
     except KeyError as error:
@@ -66,7 +66,7 @@ async def submit_course_selection(
     jws: AsyncJWSSession,
     form: dict[str, str],
 ) -> dict[str, Any]:
-    """提交选课表单；调用方必须传入完整且已确认的表单。"""
+    """提交选课表单"""
     return await jws.request_json("POST", COURSE_SELECT_SUBMIT_PATH, data=form)
 
 
@@ -78,7 +78,7 @@ async def delete_course_selection(
     kxh: str,
     token_value: str,
 ) -> str:
-    """删除已选课程。"""
+    """删除已选课程"""
     return await jws.request_text(
         "POST",
         COURSE_SELECT_DELETE_ONE_PATH,

@@ -1,4 +1,4 @@
-"""将教务系统课表响应转换为稳定的课程明细。"""
+"""解析课表明细"""
 
 from collections.abc import Iterator, Mapping
 from typing import TypedDict
@@ -70,7 +70,7 @@ def _build_entry(
 
 
 def parse_timetable(data: Mapping[str, object]) -> list[TimetableEntry]:
-    """解析课表响应，并跳过结构不完整的课程或上课时间。"""
+    """解析课表数据"""
     result: list[TimetableEntry] = []
     for course in _iter_courses(data):
         time_and_place_list = course.get("timeAndPlaceList", [])

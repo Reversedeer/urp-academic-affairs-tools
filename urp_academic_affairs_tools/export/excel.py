@@ -1,4 +1,4 @@
-"""将课表明细导出为 Excel 工作簿。"""
+"""课表明细导出"""
 
 import asyncio
 from collections.abc import Mapping, Sequence
@@ -137,5 +137,5 @@ async def export_timetable_excel(
     courses: Sequence[Mapping[str, object]],
     filename: str | Path,
 ) -> Path:
-    """在线程池中导出课表，避免阻塞异步事件循环。"""
+    """导出课表"""
     return await asyncio.to_thread(_export_xlsx, courses, Path(filename))
