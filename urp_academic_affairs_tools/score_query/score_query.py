@@ -1,4 +1,4 @@
-"""教务系统成绩查询接口与数据解析。"""
+"""教务系统成绩查询接口与数据解析"""
 
 from __future__ import annotations
 
@@ -24,8 +24,6 @@ log = logging.getLogger(__name__)
 
 
 class ScoreView(str, Enum):
-    """教务系统支持的成绩视图。"""
-
     PASSING = "passing"
     UNPASSED = "unpassed"
     THIS_TERM = "this_term"
@@ -33,7 +31,7 @@ class ScoreView(str, Enum):
 
 @dataclass(frozen=True, slots=True)
 class ScoreRecord:
-    """统一后的单门课程成绩。"""
+    """统一后的单门课程成绩"""
 
     academic_term: str
     term_key: str
@@ -54,7 +52,7 @@ class ScoreRecord:
 
 @dataclass(frozen=True, slots=True)
 class ScoreTerm:
-    """成绩页面允许查询的学年学期。"""
+    """成绩页面允许查询的学年学期"""
 
     value: str
     label: str
@@ -62,7 +60,7 @@ class ScoreTerm:
 
 @dataclass(frozen=True, slots=True)
 class ScoreQueryClient:
-    """从成绩页面提取短期数据 URL 并查询其返回数据。"""
+    """从成绩页面提取短期数据 URL 并查询其返回数据"""
 
     jws: AsyncJWSSession
 
@@ -139,10 +137,11 @@ def _parse_callback_scores(data: object) -> list[ScoreRecord]:
     return records
 
 
-def _callback_record(score: dict[str, Any], term_key: str) -> ScoreRecord:
-    academic_year = _first_string(score, "academicYearCode")
-    term_name = _first_string(score, "termName")
-    academic_term = f"{academic_year}学年{term_name}" if academic_year else term_key
+def _callback_record(
+    score: dict[str, Any],
+    term_key: str,
+) -> ScoreRecord:
+    academic_term = _academic_term_from_score(score, term_key)
     identifier = score.get("id")
     identifier_data = identifier if isinstance(identifier, dict) else {}
     course_score = _first_string(score, "courseScore", "cj")
@@ -181,7 +180,8 @@ def _callback_record(score: dict[str, Any], term_key: str) -> ScoreRecord:
 def _parse_this_term_scores(data: object) -> list[ScoreRecord]:
     if not isinstance(data, list) or not data or not isinstance(data[0], dict):
         return []
-    scores = data[0].get("list")
+    container = data[0]
+    scores = container.get("list")
     if not isinstance(scores, list):
         return []
     records: list[ScoreRecord] = []
@@ -210,9 +210,31 @@ def _string(value: object) -> str:
 
 
 def _term_key_from_score(score: dict[str, Any]) -> str:
+    identifier = score.get("id")
+    if not isinstance(identifier, dict):
+        return ""
+    return _string(identifier.get("executiveEducationPlanNumber"))
+
+
+def _academic_term_from_score(
+    score: dict[str, Any],
+    term_key: str = "",
+) -> str:
     academic_year = _first_string(score, "academicYearCode")
-    term_code = _first_string(score, "termCode")
-    return f"{academic_year}-{term_code}-1" if academic_year and term_code else ""
+    term_name = _first_string(score, "termName")
+    if academic_year:
+        return (
+            f"{academic_year}学年{term_name}" if term_name else f"{academic_year}学年"
+        )
+    return _label_from_term_key(term_key)
+
+
+def _label_from_term_key(term_key: str) -> str:
+    match = re.fullmatch(r"(?P<year>\d{4}-\d{4})-(?P<term>\d+)(?:-\d+)?", term_key)
+    if match is None:
+        return ""
+    term_name = {"1": "秋", "2": "春"}.get(match.group("term"), "")
+    return f"{match.group('year')}学年{term_name}" if term_name else match.group("year")
 
 
 def _exam_type_name(score: dict[str, Any]) -> str:
@@ -226,11 +248,9 @@ def _exam_type_name(score: dict[str, Any]) -> str:
 
 
 def score_terms(records: Sequence[ScoreRecord]) -> list[ScoreTerm]:
-    """从一次性返回的回调数据整理可筛选学期，最新学期排在最前。"""
+    """按学年学期降序排列"""
     values = {
-        record.term_key: record.academic_term
-        for record in records
-        if record.term_key
+        record.term_key: record.academic_term for record in records if record.term_key
     }
     return [
         ScoreTerm(value=value, label=label)
@@ -246,7 +266,6 @@ def filter_score_records(
 
 
 async def handle_score_query(jws: AsyncJWSSession) -> None:
-    """提供终端成绩查询菜单。"""
     client = ScoreQueryClient(jws)
     choices = {
         "1": ("全部及格成绩", ScoreView.PASSING),
@@ -274,7 +293,16 @@ async def handle_score_query(jws: AsyncJWSSession) -> None:
 
 
 def _print_score_table(records: list[ScoreRecord]) -> None:
-    headers = ["学年学期", "课程", "课程号", "课程属性", "考试类型", "学分", "绩点", "成绩"]
+    headers = [
+        "学年学期",
+        "课程",
+        "课程号",
+        "课程属性",
+        "考试类型",
+        "学分",
+        "绩点",
+        "成绩",
+    ]
     rows = [
         [
             record.academic_term,
@@ -288,7 +316,7 @@ def _print_score_table(records: list[ScoreRecord]) -> None:
         ]
         for record in records
     ]
-    widths = [15, 36, 14, 14, 10, 6, 8, 8]
+    widths = [16, 38, 10, 10, 10, 6, 6, 6]
     _print_line(_format_score_row(headers, widths))
     _print_line("-+-".join("-" * width for width in widths))
     for row in rows:

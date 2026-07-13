@@ -1,4 +1,4 @@
-"""命令行入口。"""
+"""入口"""
 
 from __future__ import annotations
 
@@ -12,35 +12,18 @@ import aioconsole
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
-if __package__:
-    from .client import (
-        AsyncJWSSession,
-        AuthError,
-        ServiceError,
-        get_this_semester_timetable,
-    )
-    from .config import load_settings
-    from .course_selection import handle_course_drop, handle_course_selection
-    from .export import export_timetable_excel
-    from .parser.evaluation import handle_teaching_evaluation
-    from .parser.timetable import parse_timetable
-    from .score_query import handle_score_query
-else:
-    from client import (  # type: ignore[no-redef]
-        AsyncJWSSession,
-        AuthError,
-        ServiceError,
-        get_this_semester_timetable,
-    )
-    from config import load_settings  # type: ignore[no-redef]
-    from course_selection import (  # type: ignore[no-redef]
-        handle_course_drop,
-        handle_course_selection,
-    )
-    from export import export_timetable_excel  # type: ignore[no-redef]
-    from parser.evaluation import handle_teaching_evaluation  # type: ignore[no-redef]
-    from parser.timetable import parse_timetable  # type: ignore[no-redef]
-    from score_query import handle_score_query  # type: ignore[no-redef]
+from .client import (
+    AsyncJWSSession,
+    AuthError,
+    ServiceError,
+    get_this_semester_timetable,
+)
+from .config import load_settings
+from .course_selection import handle_course_drop, handle_course_selection
+from .export import export_timetable_excel
+from .parser.evaluation import handle_teaching_evaluation
+from .parser.timetable import parse_timetable
+from .score_query import handle_score_query
 
 logging.basicConfig(
     level=logging.INFO,
@@ -116,7 +99,9 @@ async def main() -> None:
             if choice == "1":
                 await _run_menu_action("导出课表", handle_view_timetable(jws))
             elif choice == "2":
-                await _run_menu_action("教学评估", handle_teaching_evaluation(jws, settings))
+                await _run_menu_action(
+                    "教学评估", handle_teaching_evaluation(jws, settings)
+                )
             elif choice == "3":
                 await _run_menu_action(
                     "选课",
@@ -138,7 +123,6 @@ def _exit_with_error(error: Exception) -> NoReturn:
 
 
 def run() -> None:
-    """运行命令行程序并将常见错误转换为简洁提示。"""
     try:
         asyncio.run(main())
     except KeyboardInterrupt:

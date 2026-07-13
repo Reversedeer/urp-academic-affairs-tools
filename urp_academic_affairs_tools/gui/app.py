@@ -1,8 +1,9 @@
-"""PySide6 GUI for login, course selection, evaluation, and timetable export."""
+"""URP tools GUI"""
 
 from __future__ import annotations
 
 import asyncio
+import ctypes
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -11,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 import aiohttp
 from PySide6.QtCore import QSettings, QThread, Qt, Signal, QTimer
-from PySide6.QtGui import QActionGroup, QColor
+from PySide6.QtGui import QActionGroup, QColor, QIcon
 from PySide6.QtWidgets import (
     QApplication,
     QAbstractItemView,
@@ -42,6 +43,7 @@ from PySide6.QtWidgets import (
 
 from urp_academic_affairs_tools.client import (
     AsyncJWSSession,
+    AuthenticationFailure,
     extract_token_value,
     fetch_tasks,
 )
@@ -83,6 +85,18 @@ DROP_PAGE_INDEX = 2
 EVALUATION_PAGE_INDEX = 3
 TIMETABLE_PAGE_INDEX = 4
 SCORE_PAGE_INDEX = 5
+LOGO_PATH = Path(__file__).with_name("assets") / "furina-logo.ico"
+WINDOWS_APP_ID = "Reversedeer.URPTools.GUI"
+
+
+def _set_windows_app_id() -> None:
+    if sys.platform != "win32":
+        return
+    windll = getattr(ctypes, "windll", None)
+    if windll is not None:
+        windll.shell32.SetCurrentProcessExplicitAppUserModelID(WINDOWS_APP_ID)
+
+
 MAIN_WINDOW_WIDTH = 1485
 MAIN_WINDOW_HEIGHT = 835
 SETTINGS_ORGANIZATION = "Reversedeer"
@@ -90,7 +104,7 @@ SETTINGS_APPLICATION = "URP Tools"
 
 
 def _load_known_accounts() -> list[str]:
-    """Return successfully used accounts without retaining passwords."""
+    """从env加载账号列表"""
     value = QSettings(SETTINGS_ORGANIZATION, SETTINGS_APPLICATION).value(
         "known_accounts",
         [],
@@ -116,8 +130,6 @@ def _local_now() -> datetime:
 
 
 class AsyncWorker(QThread):
-    """Run one asyncio operation outside the Qt GUI thread."""
-
     succeeded = Signal(object)
     failed = Signal(str)
 
@@ -208,30 +220,40 @@ class UrpService:
         await jws.start()
         if not await jws.is_logged_in():
             await jws.login(self.username, self.password)
-            self.session_state = (
-                "recovered" if self.has_authenticated_session else "connected"
-            )
+            if self.has_authenticated_session:
+                recovered_states = {
+                    "concurrent_session_expired": "concurrent_session_recovered",
+                    "csrf_token_expired": "csrf_token_recovered",
+                }
+                self.session_state = recovered_states.get(
+                    self.session_state,
+                    "recovered",
+                )
+            else:
+                self.session_state = "connected"
         else:
             self.session_state = "valid"
         self.has_authenticated_session = True
         return jws
 
     def _mark_session_recovered(self) -> None:
-        self.session_state = (
-            "concurrent_session_recovered"
-            if self.session_state == "concurrent_session_expired"
-            else "recovered"
-        )
+        recovered_states = {
+            "concurrent_session_expired": "concurrent_session_recovered",
+            "csrf_token_expired": "csrf_token_recovered",
+        }
+        self.session_state = recovered_states.get(self.session_state, "recovered")
 
-    def _mark_session_expired(self, error_code: str) -> None:
-        self.session_state = (
-            "concurrent_session_expired"
-            if error_code == "concurrentSessionExpired"
-            else "expired"
-        )
+    def _mark_session_expired(self, reason: AuthenticationFailure) -> None:
+        states = {
+            AuthenticationFailure.CONCURRENT_SESSION_EXPIRED: (
+                "concurrent_session_expired"
+            ),
+            AuthenticationFailure.CSRF_TOKEN_EXPIRED: "csrf_token_expired",
+        }
+        self.session_state = states.get(reason, "expired")
 
     async def verify_login(self) -> None:
-        """完成真实登录，并确认首页返回可用的 200 响应。"""
+        """登录并验证"""
         async with await self.session() as jws:
             await jws.request_text("GET", "/index.jsp")
 
@@ -339,10 +361,12 @@ class UrpService:
         ]
         return "\n".join(results)
 
-    async def selected_courses(self) -> list[QuitCourseCandidate]:
+    async def selected_courses(
+        self,
+    ) -> tuple[str, list[QuitCourseCandidate]]:
         async with await self.session() as jws:
             client = CourseSelectionClient()
-            return await client.fetch_selected_courses(jws)
+            return await client.fetch_selected_courses_with_term(jws)
 
     async def drop_course(self, course: QuitCourseCandidate) -> str:
         async with await self.session() as jws:
@@ -405,13 +429,14 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.settings = settings
         self.service = service or UrpService(settings, username, password)
-        self.worker: AsyncWorker | None = None
+        self.workers: dict[str, AsyncWorker] = {}
         self.courses: list[CourseSelectionCandidate] = []
         self.course_checks: list[QCheckBox] = []
         self.selected_courses: list[QuitCourseCandidate] = []
         self.evaluation_tasks: list[EvaluationTask] = []
         self.score_records: list[ScoreRecord] = []
         self.passing_score_records: list[ScoreRecord] = []
+        self.score_cache: dict[ScoreView, list[ScoreRecord]] = {}
         self.current_passing_term = ""
         self.courses_loaded = False
         self.course_snatch_enabled = False
@@ -424,12 +449,12 @@ class MainWindow(QMainWindow):
         self.account_status: QLabel
         self.course_loading: QLabel
         self.drop_loading: QLabel
+        self.drop_term: QLabel
         self.evaluation_loading: QLabel
         self.timetable_loading: QLabel
         self.scores_loading: QLabel
         self.login_time_label: QLabel
         self.current_time_label: QLabel
-        self._loading_label: QLabel | None = None
         self.login_time = _local_now()
         self.clock_timer = QTimer(self)
         self.setWindowTitle("URP Tools")
@@ -592,16 +617,14 @@ class MainWindow(QMainWindow):
             Qt.ScrollBarPolicy.ScrollBarAsNeeded,
         )
         self.course_table.setAlternatingRowColors(True)
-        self._configure_table(
-            self.course_table, [42, 270, 45, 75, 75, 105, 55, 195, 0]
-        )
+        self._configure_table(self.course_table, [42, 270, 45, 75, 75, 105, 55, 195, 0])
         layout.addWidget(self.course_table)
         return page
 
     def _drop_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
-        refresh = QPushButton("刷新已选课程")
+        refresh = QPushButton("刷新数据")
         refresh.clicked.connect(self.refresh_selected_courses)
         drop = QPushButton("退课")
         drop.clicked.connect(self.drop_selected_course)
@@ -614,6 +637,9 @@ class MainWindow(QMainWindow):
         self.drop_loading.hide()
         row.addWidget(self.drop_loading)
         layout.addLayout(row)
+        self.drop_term = QLabel("当前计划学年学期：未加载")
+        self.drop_term.setObjectName("CourseTerm")
+        layout.addWidget(self.drop_term)
         self.drop_table = QTableWidget(0, 6)
         self.drop_table.setHorizontalHeaderLabels(
             ["课程", "教师", "学分", "选课方式", "上课时间", "上课地点"],
@@ -641,12 +667,10 @@ class MainWindow(QMainWindow):
 
     def _update_clock(self) -> None:
         self.login_time_label.setText(
-            "登录时间\n"
-            + self.login_time.strftime("%Y-%m-%d %H:%M:%S")
+            "登录时间\n" + self.login_time.strftime("%Y-%m-%d %H:%M:%S")
         )
         self.current_time_label.setText(
-            "当前时间\n"
-            + _local_now().strftime("%Y-%m-%d %H:%M:%S")
+            "当前时间\n" + _local_now().strftime("%Y-%m-%d %H:%M:%S")
         )
 
     def _set_course_mode(self, *, snatch: bool) -> None:
@@ -718,22 +742,23 @@ class MainWindow(QMainWindow):
         row = QHBoxLayout()
         this_term = QPushButton("本学期成绩")
         this_term.setObjectName("ScoreAction")
-        this_term.clicked.connect(lambda: self.refresh_scores(ScoreView.THIS_TERM))
+        this_term.clicked.connect(lambda: self.show_score_view(ScoreView.THIS_TERM))
         unpassed = QPushButton("不及格成绩")
         unpassed.setObjectName("ScoreAction")
-        unpassed.clicked.connect(lambda: self.refresh_scores(ScoreView.UNPASSED))
+        unpassed.clicked.connect(lambda: self.show_score_view(ScoreView.UNPASSED))
         self.passing_scores = QToolButton()
         self.passing_scores.setObjectName("PassingScores")
         self.passing_scores.setText("历年成绩查询")
         self.passing_scores.setPopupMode(
-            QToolButton.ToolButtonPopupMode.InstantPopup,
+            QToolButton.ToolButtonPopupMode.MenuButtonPopup,
         )
+        self.passing_scores.clicked.connect(self.show_default_passing_scores)
         self.passing_menu = QMenu(self.passing_scores)
         self.passing_menu.addAction("正在加载学期...").setEnabled(False)
         self.passing_scores.setMenu(self.passing_menu)
         refresh_history = QPushButton("刷新")
         refresh_history.setObjectName("ScoreAction")
-        refresh_history.clicked.connect(lambda: self.refresh_scores(ScoreView.PASSING))
+        refresh_history.clicked.connect(self.refresh_current_scores)
         for button in (this_term, unpassed):
             row.addWidget(button)
         row.addWidget(self.passing_scores)
@@ -750,7 +775,16 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.score_notice)
         self.score_table = QTableWidget(0, 8)
         self.score_table.setHorizontalHeaderLabels(
-            ["序号", "课程名", "课程号", "学分", "成绩", "课程属性", "考试类型", "未通过原因"],
+            [
+                "序号",
+                "课程名",
+                "课程号",
+                "学分",
+                "成绩",
+                "课程属性",
+                "考试类型",
+                "未通过原因",
+            ],
         )
         self.score_table.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.score_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -764,25 +798,77 @@ class MainWindow(QMainWindow):
 
     def _run(
         self,
+        key: str,
         operation: Callable[[], Coroutine[Any, Any, Any]],
         callback: Callable[[Any], None],
+        *,
+        loading_label: QLabel | None = None,
     ) -> None:
-        if self.worker is not None and self.worker.isRunning():
-            QMessageBox.information(self, "任务进行中", "请等待当前任务完成")
+        current = self.workers.get(key)
+        if current is not None and current.isRunning():
             return
-        self._loading_label = self._page_loading_label()
-        if self._loading_label is not None:
-            self._loading_label.show()
-        self.worker = AsyncWorker(operation)
-        self.worker.succeeded.connect(lambda result: self._finish(callback, result))
-        self.worker.failed.connect(self._failed)
-        self.worker.finished.connect(self._hide_loading_label)
-        self.worker.start()
+        if loading_label is not None:
+            loading_label.show()
+        worker = AsyncWorker(operation)
+        self.workers[key] = worker
+        worker.succeeded.connect(
+            lambda result, key=key, worker=worker: self._finish_worker(
+                key,
+                worker,
+                callback,
+                result,
+            )
+        )
+        worker.failed.connect(
+            lambda message, key=key, worker=worker: self._fail_worker(
+                key,
+                worker,
+                message,
+            )
+        )
+        worker.finished.connect(
+            lambda key=key, worker=worker, label=loading_label: self._cleanup_worker(
+                key,
+                worker,
+                label,
+            )
+        )
+        worker.start()
 
-    def _finish(self, callback: Callable[[object], None], result: object) -> None:
+    def _finish_worker(
+        self,
+        key: str,
+        worker: AsyncWorker,
+        callback: Callable[[object], None],
+        result: object,
+    ) -> None:
+        if self.workers.get(key) is not worker:
+            return
         callback(result)
+        self._update_account_status()
+
+    def _fail_worker(self, key: str, worker: AsyncWorker, message: str) -> None:
+        if self.workers.get(key) is not worker:
+            return
+        self._failed(message)
+
+    def _cleanup_worker(
+        self,
+        key: str,
+        worker: AsyncWorker,
+        loading_label: QLabel | None,
+    ) -> None:
+        if self.workers.get(key) is worker:
+            self.workers.pop(key, None)
+        if loading_label is not None:
+            loading_label.hide()
+        worker.deleteLater()
+
+    def _update_account_status(self) -> None:
         if self.service.session_state == "concurrent_session_recovered":
             self.account_status.setText("检测到异地登录 · 会话已重新登录")
+        elif self.service.session_state == "csrf_token_recovered":
+            self.account_status.setText("请求令牌已失效 · 认证已恢复")
         elif self.service.session_state == "recovered":
             self.account_status.setText("会话已恢复 · 已重新登录")
         else:
@@ -792,26 +878,16 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "任务失败", message)
         self.account_status.setText("请求失败 · 请重试")
 
-    def _page_loading_label(self) -> QLabel:
-        page_index = self.nav.currentRow()
-        labels = {
-            COURSE_PAGE_INDEX: self.course_loading,
-            DROP_PAGE_INDEX: self.drop_loading,
-            EVALUATION_PAGE_INDEX: self.evaluation_loading,
-            SCORE_PAGE_INDEX: self.scores_loading,
-        }
-        return labels.get(page_index, self.timetable_loading)
-
-    def _hide_loading_label(self) -> None:
-        if self._loading_label is not None:
-            self._loading_label.hide()
-        self._loading_label = None
-
     def _show_info(self, title: str, message: str) -> None:
         QMessageBox.information(self, title, message)
 
     def refresh_courses(self) -> None:
-        self._run(self.service.courses, self._show_courses)
+        self._run(
+            "courses",
+            self.service.courses,
+            self._show_courses,
+            loading_label=self.course_loading,
+        )
 
     def _show_courses(
         self,
@@ -872,8 +948,10 @@ class MainWindow(QMainWindow):
         courses = [self.courses[row] for row in rows]
         snatch = self.course_snatch_enabled
         self._run(
+            "course_submit",
             lambda: self.service.submit_courses(courses, snatch=snatch),
             lambda message: self._show_info("提交结果", message),
+            loading_label=self.course_loading,
         )
 
     def _checked_course_rows(self) -> list[int]:
@@ -882,11 +960,21 @@ class MainWindow(QMainWindow):
         ]
 
     def refresh_selected_courses(self) -> None:
-        self._run(self.service.selected_courses, self._show_selected_courses)
+        self._run(
+            "drop_courses",
+            self.service.selected_courses,
+            self._show_selected_courses,
+            loading_label=self.drop_loading,
+        )
 
-    def _show_selected_courses(self, courses: list[QuitCourseCandidate]) -> None:
+    def _show_selected_courses(
+        self,
+        result: tuple[str, list[QuitCourseCandidate]],
+    ) -> None:
+        term, courses = result
         self.selected_courses_loaded = True
         self.selected_courses = courses
+        self.drop_term.setText(f"当前计划学年学期：{term or '未知'}")
         self.drop_table.setRowCount(0)
         for course in courses:
             row = self.drop_table.rowCount()
@@ -912,8 +1000,10 @@ class MainWindow(QMainWindow):
             return
         course = self.selected_courses[row]
         self._run(
+            "course_drop",
             lambda: self.service.drop_course(course),
             lambda result: self._show_info("退课结果", result),
+            loading_label=self.drop_loading,
         )
 
     def refresh_evaluations(self) -> None:
@@ -922,7 +1012,12 @@ class MainWindow(QMainWindow):
                 data = await fetch_tasks(jws)
                 return TeachingEvaluationClient.tasks_from_data(data)
 
-        self._run(operation, self._show_evaluations)
+        self._run(
+            "evaluations",
+            operation,
+            self._show_evaluations,
+            loading_label=self.evaluation_loading,
+        )
 
     def _show_evaluations(self, tasks: list[EvaluationTask]) -> None:
         self.evaluation_loaded = True
@@ -1001,8 +1096,10 @@ class MainWindow(QMainWindow):
         if answer != QMessageBox.StandardButton.Yes:
             return
         self._run(
+            "evaluation_submit",
             lambda: self.service.evaluate(pending),
             lambda count: self._show_info("评教结果", f"成功提交 {count} 门课程"),
+            loading_label=self.evaluation_loading,
         )
 
     def export_timetable(self) -> None:
@@ -1014,19 +1111,45 @@ class MainWindow(QMainWindow):
         )
         if filename:
             self._run(
+                "timetable_export",
                 lambda: self.service.timetable(filename),
                 lambda output: self._show_info("导出完成", output),
+                loading_label=self.timetable_loading,
             )
 
     def refresh_scores(self, view: ScoreView = ScoreView.PASSING) -> None:
         self.current_score_view = view
         self._run(
+            f"scores:{view.value}",
             lambda: self.service.scores(view),
             lambda records: self._show_scores(view, records),
+            loading_label=self.scores_loading,
         )
+
+    def refresh_current_scores(self) -> None:
+        """刷新缓存"""
+        self.refresh_scores(self.current_score_view)
+
+    def show_score_view(self, view: ScoreView) -> None:
+        """优先展示缓存，首次访问某类成绩时才发起查询"""
+        self.current_score_view = view
+        cached = self.score_cache.get(view)
+        if cached is None:
+            self.refresh_scores(view)
+            return
+        self._show_scores(view, cached)
+
+    def show_default_passing_scores(self) -> None:
+        """显示当前学期的及格成绩"""
+        if not self.passing_score_records:
+            self.refresh_scores(ScoreView.PASSING)
+            return
+        terms = score_terms(self.passing_score_records)
+        self._set_passing_term(terms[0].value if terms else "")
 
     def _show_scores(self, view: ScoreView, records: list[ScoreRecord]) -> None:
         self.scores_loaded = True
+        self.score_cache[view] = records
         self.score_records = records
         if view is ScoreView.PASSING:
             self.passing_score_records = records
@@ -1037,6 +1160,8 @@ class MainWindow(QMainWindow):
         if view is ScoreView.UNPASSED and not records:
             self.score_notice.setText("没有不及格的成绩")
             self.score_notice.show()
+        elif view is ScoreView.UNPASSED:
+            self.score_notice.hide()
         else:
             self.score_notice.hide()
         self._show_score_records(view, records)
@@ -1188,7 +1313,7 @@ class MainWindow(QMainWindow):
         elif index == EVALUATION_PAGE_INDEX and not self.evaluation_loaded:
             self.refresh_evaluations()
         elif index == SCORE_PAGE_INDEX and not self.scores_loaded:
-            self.refresh_scores(ScoreView.THIS_TERM)
+            self.show_score_view(ScoreView.THIS_TERM)
 
 
 def _load_stylesheet() -> str:
@@ -1260,8 +1385,12 @@ def _load_stylesheet() -> str:
 
 
 def run_gui() -> None:
+    _set_windows_app_id()
     app = QApplication(sys.argv)
     app.setApplicationName("URP Tools")
+    app.setApplicationVersion("0.3.2")
+    app.setOrganizationName("Reversedeer")
+    app.setWindowIcon(QIcon(str(LOGO_PATH)))
     app.setStyleSheet(_load_stylesheet())
     settings = load_settings()
     while True:

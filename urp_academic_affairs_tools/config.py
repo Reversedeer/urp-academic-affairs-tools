@@ -1,4 +1,4 @@
-"""从环境变量或项目根目录的 ``.env`` 读取运行配置。"""
+"""从环境变量或项目根目录的 env 读取配置"""
 
 import os
 import re
@@ -16,7 +16,7 @@ MIN_QUOTED_VALUE_LENGTH = 2
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """应用运行配置。"""
+    """应用运行配置"""
 
     base_url: str = DEFAULT_BASE_URL
     username: str | None = None
@@ -60,7 +60,7 @@ class Settings:
             raise ValueError(msg)
 
     def require_credentials(self) -> tuple[str, str]:
-        """返回账号密码；缺失时给出可操作的错误信息。"""
+        """返回账号密码；缺失时给出可操作的错误信息"""
         if not self.username or not self.password:
             msg = (
                 "未找到教务系统账号密码，请设置 URP_USERNAME 和 URP_PASSWORD "
@@ -71,7 +71,6 @@ class Settings:
 
 
 def _read_env_file(path: Path) -> dict[str, str]:
-    """读取简单的 KEY=VALUE 文件，不执行变量展开或任意代码。"""
     if not path.is_file():
         return {}
 
@@ -135,7 +134,7 @@ def load_settings(
     *,
     env_file: Path | None = None,
 ) -> Settings:
-    """加载配置；真实环境变量优先于 ``.env``。"""
+    """加载配置"""
     environment = os.environ if env is None else env
     selected_env_file = env_file or Path(
         environment.get("URP_ENV_FILE", DEFAULT_ENV_FILE),
@@ -186,16 +185,3 @@ def load_settings(
         course_snatching_retry_interval=course_snatching_retry_interval,
     )
 
-
-# 保留旧常量，避免现有调用方立即失效；新代码应优先使用 load_settings()。
-_SETTINGS = load_settings()
-BASE_URL = _SETTINGS.base_url
-USERNAME = _SETTINGS.username
-PASSWORD = _SETTINGS.password
-DEFAULT_CHOICE = _SETTINGS.default_choice
-DEFAULT_COMMENT = _SETTINGS.default_comment
-
-
-def require_credentials() -> tuple[str, str]:
-    """兼容旧调用方式，并在调用时重新读取环境配置。"""
-    return load_settings().require_credentials()

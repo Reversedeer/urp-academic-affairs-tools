@@ -1,6 +1,7 @@
 from .course_selection import (
     CourseSelectionCandidate,
     CourseSelectionClient,
+    COURSE_SELECTION_CLOSED_MESSAGE,
     CourseSelectionFormOptions,
     CourseSelectionOptions,
     CourseSelectionQuery,
@@ -20,6 +21,7 @@ from .course_selection import (
 )
 
 __all__ = [
+    "COURSE_SELECTION_CLOSED_MESSAGE",
     "CourseSelectLink",
     "CourseSelectPageInfo",
     "CourseSelectionCandidate",

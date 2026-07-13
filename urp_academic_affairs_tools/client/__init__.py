@@ -9,8 +9,10 @@ from .api import (
 )
 from .captcha import CaptchaRecognizer
 from .errors import (
+    AuthenticationFailure,
     AuthError,
     ConcurrentSessionExpiredError,
+    CsrfTokenExpiredError,
     InvalidCredentialsError,
     ServiceError,
     SessionExpiredError,
@@ -24,8 +26,10 @@ from .session import (
 __all__ = [
     "AsyncJWSSession",
     "AuthError",
+    "AuthenticationFailure",
     "CaptchaRecognizer",
     "ConcurrentSessionExpiredError",
+    "CsrfTokenExpiredError",
     "InvalidCredentialsError",
     "RetryPolicy",
     "ServiceError",
