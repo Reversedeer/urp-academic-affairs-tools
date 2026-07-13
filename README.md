@@ -77,8 +77,6 @@ poetry run urp-tools-gui
 poetry run python -m urp_academic_affairs_tools.main
 #Run the GUI as a module
 poetry run python -m urp_academic_affairs_tools.gui
-#Run directly from source
-python urp_academic_affairs_tools/main.py
 ```
 
 > [!NOTE]
