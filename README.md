@@ -1,5 +1,7 @@
 # URP Tools
 
+## 关于 URP 教务系统的抢课脚本及工具
+
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](https://github.com/Reversedeer/urp-academic-affairs-tools#Apache-2.0-1-ov-file)
 [![PyPI](https://img.shields.io/pypi/v/urp-tools.svg)](https://pypi.org/project/urp-tools/)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
