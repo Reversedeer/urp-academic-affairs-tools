@@ -1,6 +1,6 @@
 [project]
 name = "urp-tools"
-version = "0.3.3"
+version = "0.4.0"
 description = "URP Academic Affairs System Course Snatching Tool"
 authors = [{ name = "Reversedeer", email = "ysjvillmark@gmail.com" }]
 license = { file = "LICENSE" }
