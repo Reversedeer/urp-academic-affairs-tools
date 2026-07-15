@@ -6,6 +6,7 @@ from typing import TypedDict
 
 class TimetableEntry(TypedDict):
     course_name: str
+    course_sequence_number: str
     teacher: str
     day: int | None
     start_session: int | None
@@ -54,8 +55,17 @@ def _build_entry(
     course: Mapping[str, object],
     time_and_place: Mapping[str, object],
 ) -> TimetableEntry:
+    identifier = course.get("id")
+    identifier_data = identifier if isinstance(identifier, Mapping) else {}
     return {
         "course_name": _clean_text(course.get("courseName")),
+        "course_sequence_number": _clean_text(
+            course.get("coureSequenceNumber")
+            or course.get("courseSequenceNumber")
+            or course.get("classNum")
+            or time_and_place.get("coureSequenceNumber")
+            or identifier_data.get("coureSequenceNumber"),
+        ),
         "teacher": _clean_text(course.get("attendClassTeacher")),
         "day": _optional_int(time_and_place.get("classDay")),
         "start_session": _optional_int(time_and_place.get("classSessions")),
