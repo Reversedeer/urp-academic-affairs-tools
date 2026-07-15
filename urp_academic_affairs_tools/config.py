@@ -184,4 +184,3 @@ def load_settings(
         course_snatching_concurrency=course_snatching_concurrency or 10,
         course_snatching_retry_interval=course_snatching_retry_interval,
     )
-

@@ -8,9 +8,12 @@ import secrets
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from types import TracebackType
-from typing import Any, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Any, Generic, TypeVar, cast
 
 import aiohttp
+
+if TYPE_CHECKING:
+    from typing_extensions import Self
 
 from .auth import (
     classify_authentication_failure,
@@ -198,7 +201,7 @@ class AsyncJWSSession:
         if session is not None and not session.closed:
             await session.close()
 
-    async def __aenter__(self) -> "AsyncJWSSession":  # noqa: PYI034
+    async def __aenter__(self) -> "Self":
         await self.start()
         return self
 
