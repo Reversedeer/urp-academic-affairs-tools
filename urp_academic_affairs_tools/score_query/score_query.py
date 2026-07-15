@@ -8,6 +8,7 @@ import re
 import sys
 import unicodedata
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from enum import Enum
 from typing import TYPE_CHECKING, Any
 
@@ -263,6 +264,31 @@ def filter_score_records(
     term_key: str,
 ) -> list[ScoreRecord]:
     return [record for record in records if not term_key or record.term_key == term_key]
+
+
+def calculate_average_grade_point(records: Sequence[ScoreRecord]) -> str | None:
+    """计算不含任选课的加权平均学分绩点。"""
+    total_credits = Decimal()
+    total_grade_points = Decimal()
+    for record in records:
+        if record.course_attribute == "任选":
+            continue
+        try:
+            credit = Decimal(record.credit)
+            grade_point = Decimal(record.grade_point)
+        except (InvalidOperation, ValueError):
+            continue
+        if credit <= 0 or grade_point < 0:
+            continue
+        total_credits += credit
+        total_grade_points += credit * grade_point
+    if not total_credits:
+        return None
+    average = (total_grade_points / total_credits).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+    return f"{average:.2f}"
 
 
 async def handle_score_query(jws: AsyncJWSSession) -> None:
