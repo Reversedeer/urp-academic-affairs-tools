@@ -6,16 +6,43 @@ import unittest
 
 from urp_academic_affairs_tools.client.errors import ServiceError
 from urp_academic_affairs_tools.score_query.score_query import (
+    ScoreRecord,
     ScoreView,
     _extract_data_path,
     _parse_callback_scores,
     _parse_this_term_scores,
+    calculate_average_grade_point,
     filter_score_records,
     score_terms,
 )
 
 
 class ScoreQueryTests(unittest.TestCase):
+    @staticmethod
+    def _score_record(
+        *,
+        credit: str,
+        grade_point: str,
+        course_attribute: str = "必修",
+    ) -> ScoreRecord:
+        return ScoreRecord(
+            academic_term="2024-2025学年秋",
+            term_key="2024-2025-1-1",
+            course_name="测试课程",
+            course_number="TEST001",
+            class_number="01",
+            credit=credit,
+            score="80",
+            grade_point=grade_point,
+            course_attribute=course_attribute,
+            exam_type="考试",
+            unpassed_reason="",
+            maximum_score="",
+            minimum_score="",
+            average_score="",
+            rank="",
+        )
+
     def test_extracts_server_generated_callback_path(self) -> None:
         html = (
             '<script>var url = "'
@@ -133,6 +160,28 @@ class ScoreQueryTests(unittest.TestCase):
         data = [{"list": [{"courseScore": None, "gradePoint": "4.0"}]}]
         record = _parse_this_term_scores(data)[0]
         self.assertEqual(record.grade_point, "")
+
+    def test_calculates_weighted_average_grade_point(self) -> None:
+        records = [
+            self._score_record(credit="3", grade_point="3.0"),
+            self._score_record(credit="1.5", grade_point="4.0"),
+            self._score_record(credit="2", grade_point="0"),
+            self._score_record(
+                credit="2",
+                grade_point="4.0",
+                course_attribute="任选",
+            ),
+            self._score_record(credit="invalid", grade_point="3.0"),
+            self._score_record(credit="1", grade_point="-999.999"),
+        ]
+        self.assertEqual(calculate_average_grade_point(records), "2.31")
+
+    def test_returns_none_when_no_grade_points_can_be_calculated(self) -> None:
+        records = [
+            self._score_record(credit="3", grade_point=""),
+            self._score_record(credit="0", grade_point="3.0"),
+        ]
+        self.assertIsNone(calculate_average_grade_point(records))
 
 
 if __name__ == "__main__":
