@@ -19,3 +19,6 @@ jobs:
         with:
           version: "latest"
           args: "check"
+
+      - name: Check Ruff Formatting
+        run: ruff format --check --diff .
