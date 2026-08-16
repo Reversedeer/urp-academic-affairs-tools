@@ -1,10 +1,15 @@
 """教务系统业务接口"""
 
+import re
 from typing import Any
 
+from .errors import ServiceError
 from .session import AsyncJWSSession
 
-TIMETABLE_PATH = "/student/courseSelect/thisSemesterCurriculum/callback"
+TIMETABLE_PATH = "/student/courseSelect/thisSemesterCurriculum/index"
+TIMETABLE_CALLBACK_RE = re.compile(
+    r"""url:\s*["'](?P<path>/student/courseSelect/thisSemesterCurriculum/[^/"']+/ajaxStudentSchedule/curr/callback)["']""",
+)
 EVALUATION_TASKS_PATH = "/student/teachingEvaluation/teachingEvaluation/search"
 COURSE_SELECT_INDEX_PATH = "/student/courseSelect/courseSelect/index"
 COURSE_SELECT_RESULT_INDEX_PATH = "/student/courseSelect/courseSelectResult/index"
@@ -18,11 +23,14 @@ COURSE_SELECT_LIST_PATHS = {
 }
 
 
-async def get_this_semester_timetable(
-    jws: AsyncJWSSession,
-) -> dict[str, Any]:
-    """获取本学期课表"""
-    return await jws.request_json("GET", TIMETABLE_PATH)
+async def get_timetable(jws: AsyncJWSSession) -> dict[str, Any]:
+    """获取本学期课表数据"""
+    page = await jws.request_text("GET", TIMETABLE_PATH)
+    match = TIMETABLE_CALLBACK_RE.search(page)
+    if match is None:
+        msg = "无法从主课表页面解析数据接口"
+        raise ServiceError(msg)
+    return await jws.request_json("POST", match.group("path"))
 
 
 async def fetch_tasks(jws: AsyncJWSSession) -> dict[str, Any]:

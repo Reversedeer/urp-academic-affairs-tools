@@ -11,6 +11,7 @@ from urp_academic_affairs_tools.client import (
     AuthenticationFailure,
     extract_token_value,
     fetch_tasks,
+    get_timetable,
 )
 from urp_academic_affairs_tools.course_selection import (
     CourseSelectionClient,
@@ -244,11 +245,7 @@ class UrpService:
 
     async def timetable_entries(self) -> list[TimetableEntry]:
         async with await self.session() as jws:
-            data = await jws.request_json(
-                "GET",
-                "/student/courseSelect/thisSemesterCurriculum/callback",
-            )
-            return parse_timetable(data)
+            return parse_timetable(await get_timetable(jws))
 
     async def scores(self, view: ScoreView) -> list[ScoreRecord]:
         async with await self.session() as jws:
