@@ -39,13 +39,17 @@ class TimetableApiTests(unittest.IsolatedAsyncioTestCase):
             [
                 (
                     "POST",
-                    "/student/courseSelect/thisSemesterCurriculum/firstToken/"
-                    "ajaxStudentSchedule/curr/callback",
+                    (
+                        "/student/courseSelect/thisSemesterCurriculum/firstToken/"
+                        "ajaxStudentSchedule/curr/callback"
+                    ),
                 ),
                 (
                     "POST",
-                    "/student/courseSelect/thisSemesterCurriculum/secondToken/"
-                    "ajaxStudentSchedule/curr/callback",
+                    (
+                        "/student/courseSelect/thisSemesterCurriculum/secondToken/"
+                        "ajaxStudentSchedule/curr/callback"
+                    ),
                 ),
             ],
         )
