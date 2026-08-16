@@ -24,7 +24,7 @@ from urp_academic_affairs_tools.client.api import (
     fetch_course_select_list,
     fetch_course_select_page,
     fetch_course_select_result_index,
-    get_this_semester_timetable,
+    get_timetable,
     submit_course_selection,
 )
 
@@ -558,7 +558,7 @@ class CourseSelectionClient:
         jws: AsyncJWSSession,
     ) -> tuple[str, list[QuitCourseCandidate]]:
         """读取退课数据"""
-        data = await get_this_semester_timetable(jws)
+        data = await get_timetable(jws)
         term = _extract_context_value(data, "executiveEducationPlanNumber")
         return term, parse_selected_courses(data)
 
@@ -568,7 +568,7 @@ class CourseSelectionClient:
     ) -> dict[str, Any]:
         """获取选课结果回调数据，包含培养方案和学期上下文"""
         await fetch_course_select_result_index(jws)
-        return await get_this_semester_timetable(jws)
+        return await get_timetable(jws)
 
     async def submit_once(
         self,

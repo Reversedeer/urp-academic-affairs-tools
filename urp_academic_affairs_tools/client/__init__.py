@@ -5,7 +5,7 @@ from .api import (
     fetch_course_select_list,
     fetch_course_select_page,
     fetch_tasks,
-    get_this_semester_timetable,
+    get_timetable,
 )
 from .captcha import CaptchaRecognizer
 from .errors import (
@@ -41,5 +41,5 @@ __all__ = [
     "fetch_course_select_list",
     "fetch_course_select_page",
     "fetch_tasks",
-    "get_this_semester_timetable",
+    "get_timetable",
 ]

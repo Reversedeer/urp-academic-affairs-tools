@@ -16,7 +16,7 @@ from .client import (
     AsyncJWSSession,
     AuthError,
     ServiceError,
-    get_this_semester_timetable,
+    get_timetable,
 )
 from .config import load_settings
 from .course_selection import handle_course_drop, handle_course_selection
@@ -53,7 +53,7 @@ async def read_menu_choice() -> str | None:
 
 
 async def handle_view_timetable(jws: AsyncJWSSession) -> None:
-    raw_data = await get_this_semester_timetable(jws)
+    raw_data = await get_timetable(jws)
     courses = parse_timetable(raw_data)
     if not courses:
         log.warning("未查询到任何课程")
